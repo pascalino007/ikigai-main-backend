@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -26,9 +27,15 @@ import { ProOwnners } from './providers/pro_ownners/pro_ownners.entity';
 import { ProOwnnersModule } from './providers/pro_ownners/pro_ownners.module';
 import { SousCategories } from './admin/sous-category/sous-category.entity';
 import { SousCategoryModule } from './admin/sous-category/sous-category.module';
+import { UploadModule } from './upload/upload.module';
+import { SpecialsModule } from './specials/specials.module';
+import { Special } from './specials/special.entity';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     TypeOrmModule.forRoot({
       type: 'mysql',
       host: 'localhost',
@@ -45,7 +52,8 @@ import { SousCategoryModule } from './admin/sous-category/sous-category.module';
         ClientWallet,
         Transactionm,
         ProOwnners ,
-        SousCategories
+        SousCategories,
+        Special
       ],
       synchronize: true,
     }),
@@ -62,6 +70,8 @@ import { SousCategoryModule } from './admin/sous-category/sous-category.module';
     EnrollersModule,
     PermissionsModule,
     ProOwnnersModule,
+    UploadModule,
+    SpecialsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

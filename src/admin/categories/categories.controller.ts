@@ -28,7 +28,7 @@ export class CategoriesController {
   }
 
   // ✅ Update category
-  @Patch(':id')
+  @Post('update/:id')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateCategoryDto: UpdateCategoryDto,
