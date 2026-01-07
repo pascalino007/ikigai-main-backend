@@ -1,6 +1,13 @@
-import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 
-@Entity()
+@Entity('client_wallets')
+@Index(['client_id'], { unique: true })
 export class ClientWallet {
   @PrimaryGeneratedColumn()
   id: number;
@@ -8,10 +15,10 @@ export class ClientWallet {
   @Column()
   client_id: number;
 
-  @Column()
-  balance: string;
+  /** Balance in smallest unit (e.g. FCFA) */
+  @Column('int', { default: 0 })
+  balance: number;
 
-
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @UpdateDateColumn()
   updatedAt: Date;
 }

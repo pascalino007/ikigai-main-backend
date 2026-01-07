@@ -17,7 +17,7 @@ import { ClientWalletModule } from './client/client_wallet/client_wallet.module'
 import { TransactionModule } from './transaction/transaction.module';
 import { ClientWallet } from './client/client_wallet/client_wallet.entity';
 import { CartModule } from './client/cart/cart.module';
-import { Transactionm } from './transaction/transaction.entity';
+import { Transaction} from './transaction/transaction.entity';
 
 import { SlidersModule } from './admin/sliders/sliders.module';
 import { EnrollersModule } from './enrollers/enrollers.module';
@@ -30,6 +30,8 @@ import { SousCategoryModule } from './admin/sous-category/sous-category.module';
 import { UploadModule } from './upload/upload.module';
 import { SpecialsModule } from './specials/specials.module';
 import { Special } from './specials/special.entity';
+import { GeovilleModule } from './geolocation/geoville/geoville.module';
+import { Geoville } from './geolocation/geoville/entities/geoville.entity';
 
 @Module({
   imports: [
@@ -50,10 +52,11 @@ import { Special } from './specials/special.entity';
         Services,
         Bookings,
         ClientWallet,
-        Transactionm,
+        Transaction,
         ProOwnners ,
         SousCategories,
-        Special
+        Special,
+        Geoville
       ],
       synchronize: true,
     }),
@@ -72,6 +75,7 @@ import { Special } from './specials/special.entity';
     ProOwnnersModule,
     UploadModule,
     SpecialsModule,
+    GeovilleModule,
   ],
   controllers: [AppController],
   providers: [AppService],

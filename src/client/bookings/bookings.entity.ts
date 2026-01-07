@@ -1,34 +1,29 @@
-import {Entity , Column, PrimaryGeneratedColumn} from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity()
 export class Bookings {
     
     @PrimaryGeneratedColumn()
-    id : number ;
+    id: number;
 
     @Column()
-    user_id : string ;
+    user_id: string;
 
     @Column()
-    provider_id : string ;
+    provider_id: string;
 
     @Column()
-    booking_date : Date ;
+    booking_date: Date;
 
     @Column()
-    booking_time : Date ;
+    booking_time: Date;
 
-    payement_status : number ;
+    @Column({ default: 0 }) // 0 = pending, 1 = paid
+    payement_status: number;
 
-    booking_status : string ;
+    @Column({ default: 0 })
+    booking_status: number;
 
     @Column()
-    service_id : string ;
-
-
-    
-
-   
-
-
+    service_id: string;
 }

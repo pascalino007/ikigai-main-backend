@@ -37,13 +37,14 @@ export class ShopsController {
   }
 
   // ✅ Update a shop by ID
-  @Patch(':id')
-  async update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() updateShopDto: UpdateShopDto,
-  ): Promise<Shops> {
-    return await this.shopsService.update(id, updateShopDto);
-  }
+  @Post('update/:id')
+async update(
+  @Param('id', ParseIntPipe) id: number,
+  @Body() updateShopDto: UpdateShopDto,
+): Promise<Shops> {
+  return await this.shopsService.update(id, updateShopDto);
+}
+
 
   // ✅ Delete a shop by ID
   @Delete(':id')

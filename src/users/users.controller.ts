@@ -11,9 +11,9 @@ export class UsersController {
     constructor (private usersService : UsersService){}
 
     @Post('/signup')
-    createUser(@Body() body: CreateUserDto) {
+    async createUser(@Body() body: CreateUserDto) {
         //get all the information of the users
-        this.usersService.create(body);
+      return await this.usersService.create(body);
     };
 
     // ✅ Signin route
@@ -48,4 +48,12 @@ export class UsersController {
   async remove(@Param('id', ParseIntPipe) id: number) {
     return await this.usersService.remove(id);
   }
+
+  @Post('reset-password/:id')
+async resetPassword(
+  @Param('id', ParseIntPipe) id: number,
+  @Body('newPassword') newPassword: string
+) {
+  return this.usersService.resetPassword(id, newPassword);
+}
 }

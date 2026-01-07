@@ -1,37 +1,52 @@
-import {Entity , Column, PrimaryGeneratedColumn} from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+} from 'typeorm';
 
-@Entity()
-export class Transactionm {
-    
-    @PrimaryGeneratedColumn()
-    id : number ;
+@Entity('transactions')
+export class Transaction {
+  @PrimaryGeneratedColumn()
+  id: number;
 
-    @Column()
-    label : string ;
+  @Column()
+  label: string;
 
-    @Column()
-    user_id : number ;
+  @Column()
+  fromUserId: number;
 
-    @Column()
-    amount : number ;
+  @Column()
+  toUserId: number;
 
-    @Column()
-    status : number ;
+  /** Always positive */
+  @Column('int')
+  amount: number;
 
-    @Column()
-    beneficiary_id : number ;
+  /** -1 failed | 0 pending | 1 success */
+  @Column('int')
+  status: number;
 
-    @Column()
-    transaction_id : Date ;
+  /** 1 deposit | 2 subscription | 3 order | ... */
+  @Column('int')
+  transactionMotifId: number;
 
-    @Column()
-    transaction_motif_id : string ;
+  /** internal / gateway reference */
+  @Column({ unique: true })
+  transactionRef: string;
 
-    @Column()
-    payement_method : string ;
+  /** wallet | cash | momo | card */
+  @Column()
+  paymentMethod: string;
 
-    @Column()
-    createdAt : Date ;
+  /** Wallet balance before transaction */
+  @Column('int')
+  balanceBefore: number;
 
+  /** Wallet balance after transaction */
+  @Column('int')
+  balanceAfter: number;
 
+  @CreateDateColumn()
+  createdAt: Date;
 }

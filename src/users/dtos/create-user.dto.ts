@@ -24,7 +24,7 @@ export class CreateUserDto {
         @IsString()
         role : string ;
 
-        @IsNotEmpty()
+        
         @IsString()
         image : string ;
     
