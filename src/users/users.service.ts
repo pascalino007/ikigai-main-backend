@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { JwtService } from '@nestjs/jwt';
 
 import * as bcrypt from 'bcrypt';
 import { Users } from './user.entity';
@@ -13,16 +14,21 @@ export class UsersService {
   constructor(
     @InjectRepository(Users)
     private readonly usersRepository: Repository<Users>,
+    private jwtService: JwtService,
   ) {}
 
   // ✅ Create a new user
    async create(createUserDto: CreateUserDto): Promise<{ user: Users; rawPassword: string }> {
-    const existingUser = await this.usersRepository.findOne({ where: { email: createUserDto.email } });
+    if (!createUserDto.email) {
+      throw new BadRequestException('Email is required');
+    }
+    const email = createUserDto.email.toLowerCase().trim();
+    const existingUser = await this.usersRepository.findOne({ where: { email } });
     if (existingUser) {
       throw new BadRequestException('User with this email already exists');
     }
 
-    const role = createUserDto.role ? createUserDto.role.toLowerCase() : 'user';
+    const role = createUserDto.role ? createUserDto.role.toLowerCase().trim() : 'user';
     let rawPassword = createUserDto.password;
 
     if (!rawPassword) {
@@ -38,6 +44,7 @@ export class UsersService {
 
   const newUser = this.usersRepository.create({
     ...createUserDto,
+    email,
     role,
     password: hashedPassword,
     is_active: true,
@@ -45,22 +52,34 @@ export class UsersService {
   });
 
   const savedUser = await this.usersRepository.save(newUser);
+  delete (savedUser as any).password;
 
   return { user: savedUser, rawPassword }; // return plain password once
 }
 
 
 
-    async signin(signinDto: SigninUserDto): Promise<{ message: string; user: Users }> {
-    const { email, password } = signinDto;
-    const user = await this.usersRepository.findOne({ where: { email } });
+    async signin(signinDto: SigninUserDto): Promise<{ message: string; accessToken: string; user: Users }> {
+    const { email: rawEmail, password } = signinDto;
+
+    if (!rawEmail || !password) {
+      throw new BadRequestException('Email and password are required');
+    }
+
+    const email = rawEmail.toLowerCase().trim();
+    const user = await this.usersRepository.createQueryBuilder('users')
+      .addSelect('users.password')
+      .where('users.email = :email', { email })
+      .getOne();
 
     if (!user) {
+      console.warn(`Signin failed: User not found for email ${email}`);
       throw new NotFoundException('User not found');
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
+      console.warn(`Signin failed: Invalid password for user ${email}`);
       // Check if the password in DB is plain text (legacy support/migration)
       if (password === user.password) {
         // Hash it and save
@@ -71,7 +90,10 @@ export class UsersService {
       }
     }
 
-    return { message: 'Signin successful', user };
+    delete (user as any).password;
+    const payload = { email: user.email, sub: user.id, role: user.role };
+    const accessToken = this.jwtService.sign(payload);
+    return { message: 'Signin successful', accessToken, user };
   }
 
   // ✅ Get all users

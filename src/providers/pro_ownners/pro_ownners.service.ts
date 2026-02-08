@@ -27,6 +27,11 @@ export class ProOwnnersService {
     return await this.proOwnnersRepository.find();
   }
 
+  // ✅ Count ProOwners in DB
+  async count(): Promise<number> {
+    return await this.proOwnnersRepository.count();
+  }
+
   // ✅ Get one ProOwner
   async findOne(id: number): Promise<ProOwnners> {
     const proOwner = await this.proOwnnersRepository.findOne({ where: { id } });

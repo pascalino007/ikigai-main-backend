@@ -3,6 +3,7 @@ import { Controller, Get, Post, Put, Delete, Param, Body, ParseIntPipe } from '@
 import { SousCategoriesService } from './sous-category.service'
 import { SousCategories } from './sous-category.entity'
 import { CreateSousCategoryDto } from './dtos/create-souscategory.dto'
+import { UpdateSousCategoryDto } from './dtos/update-souscategory.dto'
 
 
 
@@ -30,13 +31,13 @@ export class SousCategoriesController {
     return this.sousCategoriesService.create(dto)
   }
 
-/*   @Put(':id')
+   @Post(':id')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateSousCategoryDto,
   ): Promise<SousCategories> {
     return this.sousCategoriesService.update(id, dto)
-  } */
+  } 
 
   @Delete(':id')
   async remove(@Param('id', ParseIntPipe) id: number): Promise<{ message: string }> {

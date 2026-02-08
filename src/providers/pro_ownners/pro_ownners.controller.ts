@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Delete, ParseIntPipe } from '@nestjs/common';
 import { ProOwnnersService } from './pro_ownners.service';
 import { CreateProOwnnerDto } from './dtos/create-proownner.dto';
 import { ProOwnners } from './pro_ownners.entity';
@@ -15,6 +15,13 @@ export class ProOwnnersController {
     return await this.service.create(createDto);
   }
 
+  // ✅ Count ProOwners in DB (path with two segments so it never matches :id)
+  @Get('stats/count')
+  async count(): Promise<{ count: number }> {
+    const count = await this.service.count();
+    return { count };
+  }
+
   // ✅ Get all ProOwners
   @Get()
   async findAll(): Promise<ProOwnners[]> {
@@ -28,7 +35,7 @@ export class ProOwnnersController {
   }
 
   // ✅ Update ProOwner
-  @Patch(':id')
+  @Post(':id')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateDto: UpdateProOwnnerDto,

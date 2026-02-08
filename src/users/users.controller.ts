@@ -35,7 +35,7 @@ export class UsersController {
   }
 
   // ✅ Update a user
-  @Patch(':id')
+  @Post(':id')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateUserDto: UpdateUserDto,

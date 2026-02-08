@@ -32,7 +32,7 @@ export class ServicesController {
   }
 
   // ✅ Update service
-  @Patch(':id')
+  @Post(':id')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateServiceDto: UpdateServiceDto,

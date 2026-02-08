@@ -32,6 +32,8 @@ import { SpecialsModule } from './specials/specials.module';
 import { Special } from './specials/special.entity';
 import { GeovilleModule } from './geolocation/geoville/geoville.module';
 import { Geoville } from './geolocation/geoville/entities/geoville.entity';
+import { MarketplaceModule } from './marketplace/marketplace.module';
+import { Product } from './marketplace/product.entity';
 
 @Module({
   imports: [
@@ -56,7 +58,8 @@ import { Geoville } from './geolocation/geoville/entities/geoville.entity';
         ProOwnners ,
         SousCategories,
         Special,
-        Geoville
+        Geoville,
+        Product
       ],
       synchronize: true,
     }),
@@ -76,6 +79,7 @@ import { Geoville } from './geolocation/geoville/entities/geoville.entity';
     UploadModule,
     SpecialsModule,
     GeovilleModule,
+    MarketplaceModule,
   ],
   controllers: [AppController],
   providers: [AppService],
