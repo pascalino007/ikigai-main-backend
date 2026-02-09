@@ -59,13 +59,15 @@ export class SousCategoriesService {
   }
 
   async update(id: number, dto: UpdateSousCategoryDto): Promise<SousCategories> {
-    const category = await this.findOne(id)
+    const category = await this.sousCategoryRepo.findOne({ where: { id } })
+    if (!category) throw new NotFoundException('SousCategory not found')
     Object.assign(category, dto)
     return this.sousCategoryRepo.save(category)
   }
 
   async remove(id: number): Promise<void> {
-    const category = await this.findOne(id)
+    const category = await this.sousCategoryRepo.findOne({ where: { id } })
+    if (!category) throw new NotFoundException('SousCategory not found')
     await this.sousCategoryRepo.remove(category)
   }
 }

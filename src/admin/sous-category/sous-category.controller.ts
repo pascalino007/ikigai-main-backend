@@ -1,5 +1,5 @@
 // sous-categories.controller.ts
-import { Controller, Get, Post, Put, Delete, Param, Body, ParseIntPipe } from '@nestjs/common'
+import { Controller, Get, Post, Delete, Param, Body, ParseIntPipe } from '@nestjs/common'
 import { SousCategoriesService } from './sous-category.service'
 import { SousCategories } from './sous-category.entity'
 import { CreateSousCategoryDto } from './dtos/create-souscategory.dto'
