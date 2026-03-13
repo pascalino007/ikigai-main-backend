@@ -26,6 +26,12 @@ export class Shops {
   @Column()
   quartier: string;
 
+  @Column({ type: 'decimal', precision: 10, scale: 8, nullable: true })
+  longitude: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 8, nullable: true })
+  latitude: number;
+
   @Column()
   phone: string;
 

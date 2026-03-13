@@ -22,31 +22,15 @@ export class SousCategoriesService {
   }
 
   async findAll(): Promise<SousCategories[]> {
-    const sousCategories = await this.sousCategoryRepo.createQueryBuilder('sous_category')
-      .leftJoinAndMapOne('sous_category.category', 'Category', 'category', 'category.id = sous_category.category')
-      .getMany();
-
-    return sousCategories.map((sc: any) => {
-      if (sc.category && sc.category.name) {
-        sc.category = sc.category.name;
-      }
-      return sc;
-    });
+    return this.sousCategoryRepo.find();
   }
 
   async findOne(id: number): Promise<SousCategories> {
-    const category = await this.sousCategoryRepo.createQueryBuilder('sous_category')
-      .leftJoinAndMapOne('sous_category.category', 'Category', 'category', 'category.id = sous_category.category')
-      .where('sous_category.id = :id', { id })
-      .getOne();
+    const category = await this.sousCategoryRepo.findOne({ where: { id } });
 
     if (!category) throw new NotFoundException('SousCategory not found')
 
-    const sc: any = category;
-    if (sc.category && sc.category.name) {
-      sc.category = sc.category.name;
-    }
-    return sc;
+    return category;
   }
 
   async create(dto: CreateSousCategoryDto): Promise<SousCategories> {

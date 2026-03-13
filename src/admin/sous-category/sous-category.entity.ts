@@ -1,5 +1,4 @@
 import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
-// import { Category } from '../category/category.entity';
 
 @Entity()
 export class SousCategories {
@@ -22,9 +21,6 @@ export class SousCategories {
 
     @Column()
     createdAt : Date ;
-
-
-   
 
 
 }
