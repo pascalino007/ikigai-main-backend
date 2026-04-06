@@ -1,5 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 
+export type ShopGrade = 'basic' | 'pro' | 'elite';
+
 @Entity()
 export class Shops {
   @PrimaryGeneratedColumn()
@@ -68,6 +70,12 @@ export class Shops {
   
   @Column()
   registered_by: string;
+
+  @Column({ type: 'enum', enum: ['basic', 'pro', 'elite'], default: 'basic' })
+  grade: ShopGrade;
+
+  @Column({ default: true })
+  is_active: boolean;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   createdAt: Date;

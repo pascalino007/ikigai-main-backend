@@ -5,21 +5,15 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Transaction } from './transaction.entity';
 import { ClientWallet } from 'src/client/client_wallet/client_wallet.entity';
 import { ClientWalletService } from 'src/client/client_wallet/client_wallet.service';
-
-
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      Transaction,
-      ClientWallet,
-    ]),
+    TypeOrmModule.forFeature([Transaction, ClientWallet]),
+    PaymentsModule,
   ],
   controllers: [TransactionsController],
-  providers: [
-    TransactionsService,
-    ClientWalletService ,
-    
-  ],
+  providers: [TransactionsService, ClientWalletService],
+  exports: [TransactionsService],
 })
 export class TransactionModule {}

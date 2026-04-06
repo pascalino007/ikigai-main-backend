@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   ParseIntPipe,
+  Query,
 } from '@nestjs/common';
 import { ShopsService } from './shops.service';
 import { CreateShopDto } from './dtos/create-shop.dto';
@@ -24,10 +25,16 @@ export class ShopsController {
     return await this.shopsService.create(createShopDto);
   }
 
-  // ✅ Get all shops
+  // ✅ Get all shops, optionally filtered by grade (basic|pro|elite)
   @Get()
-  async findAll(): Promise<Shops[]> {
-    return await this.shopsService.findAll();
+  async findAll(@Query('grade') grade?: string): Promise<Shops[]> {
+    return await this.shopsService.findAll(grade);
+  }
+
+  // ✅ Toggle shop visibility on mobile app
+  @Patch(':id/toggle-active')
+  async toggleActive(@Param('id', ParseIntPipe) id: number): Promise<Shops> {
+    return await this.shopsService.toggleActive(id);
   }
 
   // ✅ Get one shop by ID

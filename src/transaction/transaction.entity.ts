@@ -3,7 +3,11 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
+  OneToOne,
+  JoinColumn,
+  RelationId,
 } from 'typeorm';
+import { Bookings } from '../client/bookings/bookings.entity';
 
 @Entity('transactions')
 export class Transaction {
@@ -23,29 +27,47 @@ export class Transaction {
   @Column('int')
   amount: number;
 
+  @Column({ type: 'varchar', length: 8, default: 'XOF' })
+  currency: string;
+
   /** -1 failed | 0 pending | 1 success */
   @Column('int')
   status: number;
 
-  /** 1 deposit | 2 subscription | 3 order | ... */
+  /** 1 deposit | 2 subscription | 3 order | … | 9 booking */
   @Column('int')
   transactionMotifId: number;
 
-  /** internal / gateway reference */
+  /** Internal reference (sent to aggregators as metadata / merchant ref). */
   @Column({ unique: true })
   transactionRef: string;
 
-  /** wallet | cash | momo | card */
+  /** wallet | card | mobile_money — channel used with our ledger */
   @Column()
   paymentMethod: string;
 
-  /** Wallet balance before transaction */
+  /** stripe | kkiapay | paygate | sandbox | … */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  paymentProvider: string | null;
+
+  /** Id from Stripe / Kkiapay / Paygate for reconciliation & idempotent webhooks */
+  @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
+  externalPaymentId: string | null;
+
+  /** Wallet balance before transaction (external booking payments may mirror client wallet if present). */
   @Column('int')
   balanceBefore: number;
 
   /** Wallet balance after transaction */
   @Column('int')
   balanceAfter: number;
+
+  @OneToOne(() => Bookings, (b) => b.transaction, { nullable: true })
+  @JoinColumn({ name: 'bookingId' })
+  booking?: Bookings;
+
+  @RelationId((t: Transaction) => t.booking)
+  bookingId: number | null;
 
   @CreateDateColumn()
   createdAt: Date;

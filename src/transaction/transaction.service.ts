@@ -8,6 +8,14 @@ import { DataSource, Repository } from 'typeorm';
 import { Transaction } from './transaction.entity';
 import { ClientWallet } from 'src/client/client_wallet/client_wallet.entity';
 import { TransactionMotif, TransactionStatus } from './transaction.contants';
+import { StripeService } from '../payments/stripe.service';
+import { KkiapayService } from '../payments/kkiapay.service';
+import { InitiateDepositDto } from './dtos/initiate-deposit.dto';
+
+export interface DepositResult {
+  transaction: Transaction;
+  clientInstructions: Record<string, unknown>;
+}
 
 @Injectable()
 export class TransactionsService {
@@ -19,40 +27,115 @@ export class TransactionsService {
     private readonly clientWalletRepository: Repository<ClientWallet>,
 
     private readonly dataSource: DataSource,
+    private readonly stripeService: StripeService,
+    private readonly kkiapayService: KkiapayService,
   ) {}
 
-  
-  async initiateDeposit(
-    clientId: number,
-    amount: number,
-    paymentMethod: string,
-  ): Promise<Transaction> {
+  /**
+   * Create a pending deposit and return provider-specific client instructions
+   * so the mobile app can complete the payment via Stripe SDK or Kkiapay widget.
+   */
+  async initiateDeposit(dto: InitiateDepositDto): Promise<DepositResult> {
+    const { clientId, amount, paymentChannel, paymentProvider } = dto;
+
     if (!amount || amount <= 0) {
       throw new BadRequestException('Invalid deposit amount');
     }
 
-    const wallet = await this.clientWalletRepository.findOne({
+    // Ensure wallet exists
+    let wallet = await this.clientWalletRepository.findOne({
       where: { client_id: clientId },
     });
-
     if (!wallet) {
-      throw new NotFoundException('Wallet not found');
+      wallet = await this.clientWalletRepository.save(
+        this.clientWalletRepository.create({ client_id: clientId, balance: 0 }),
+      );
     }
+
+    const transactionRef = `DEP-${Date.now()}-${clientId}`;
 
     const transaction = this.transactionRepository.create({
       label: 'Wallet deposit',
       fromUserId: clientId,
       toUserId: clientId,
       amount,
-      paymentMethod,
-      status: TransactionStatus.PENDING, // 0
+      currency: 'XOF',
+      paymentMethod: paymentChannel,
+      paymentProvider,
+      externalPaymentId: null,
+      status: TransactionStatus.PENDING,
       transactionMotifId: TransactionMotif.WALLET_DEPOSIT,
-      transactionRef: `DEP-${Date.now()}-${clientId}`,
+      transactionRef,
       balanceBefore: wallet.balance,
-      balanceAfter: wallet.balance + amount,
+      balanceAfter: wallet.balance, // updated on confirmation
     });
 
-    return this.transactionRepository.save(transaction);
+    await this.transactionRepository.save(transaction);
+
+    // Build provider-specific instructions for the mobile app
+    let clientInstructions: Record<string, unknown>;
+
+    if (paymentProvider === 'stripe') {
+      if (!this.stripeService.isConfigured) {
+        throw new BadRequestException(
+          'Stripe is not configured on the server (missing STRIPE_SECRET_KEY)',
+        );
+      }
+
+      const intent = await this.stripeService.createPaymentIntent({
+        amount,
+        currency: 'XOF',
+        metadata: {
+          transactionRef,
+          type: 'wallet_deposit',
+          clientId: String(clientId),
+        },
+      });
+      transaction.externalPaymentId = intent.paymentIntentId;
+      await this.transactionRepository.save(transaction);
+
+      clientInstructions = {
+        provider: 'stripe',
+        publishableKey: this.stripeService.publishableKey,
+        clientSecret: intent.clientSecret,
+        paymentIntentId: intent.paymentIntentId,
+        transactionRef,
+        amount,
+        currency: 'xof',
+      };
+    } else if (paymentProvider === 'kkiapay') {
+      if (!this.kkiapayService.isConfigured) {
+        throw new BadRequestException(
+          'Kkiapay is not configured on the server (missing KKIAPAY_PRIVATE_KEY)',
+        );
+      }
+
+      clientInstructions = {
+        ...this.kkiapayService.buildWidgetPayload({
+          amount,
+          transactionRef,
+          reason: 'Ikigai wallet top-up',
+        }),
+        transactionRef,
+      };
+    } else {
+      // Sandbox fallback
+      clientInstructions = {
+        provider: 'sandbox',
+        hint: 'POST /payments/webhooks/sandbox to simulate success',
+        simulateWebhook: {
+          method: 'POST',
+          path: '/payments/webhooks/sandbox',
+          body: {
+            transactionRef,
+            status: 'succeeded',
+            externalPaymentId: `sandbox-${transactionRef}`,
+          },
+        },
+      };
+    }
+
+    return { transaction, clientInstructions };
   }
 
   
@@ -65,6 +148,12 @@ export class TransactionsService {
 
       if (!transaction) {
         throw new NotFoundException('Transaction not found');
+      }
+
+      if (transaction.transactionMotifId === TransactionMotif.BOOKING_PAYMENT) {
+        throw new BadRequestException(
+          'Booking payments are confirmed via payment webhooks only',
+        );
       }
 
       if (transaction.status === TransactionStatus.SUCCESS) {
@@ -121,7 +210,10 @@ export class TransactionsService {
       fromUserId,
       toUserId,
       amount,
+      currency: 'XOF',
       paymentMethod: 'wallet',
+      paymentProvider: null,
+      externalPaymentId: null,
       status: TransactionStatus.PENDING, // 0
       transactionMotifId: TransactionMotif.ORDER_PAYMENT,
       transactionRef: `PAY-${Date.now()}-${fromUserId}-${toUserId}`,
@@ -142,6 +234,12 @@ export class TransactionsService {
 
       if (!transaction) {
         throw new NotFoundException('Transaction not found');
+      }
+
+      if (transaction.transactionMotifId === TransactionMotif.BOOKING_PAYMENT) {
+        throw new BadRequestException(
+          'Booking payments are confirmed via payment webhooks only',
+        );
       }
 
       if (transaction.status === TransactionStatus.SUCCESS) {

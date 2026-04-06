@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsArray, IsEmail } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsEmail, IsNumber, IsBoolean, IsIn } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateShopDto {
   @IsString()
@@ -65,6 +66,24 @@ export class CreateShopDto {
   @IsString()
   owner?: string;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  latitude?: number;
+
   @IsString()
   registered_by: string;
+
+  @IsOptional()
+  @IsIn(['basic', 'pro', 'elite'])
+  grade?: 'basic' | 'pro' | 'elite';
+
+  @IsOptional()
+  @IsBoolean()
+  is_active?: boolean;
 }

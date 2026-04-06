@@ -3,6 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { Repository } from 'typeorm'
 import { InjectRepository } from '@nestjs/typeorm'
 import { SousCategories } from './sous-category.entity'
+import { Categories } from '../categories/categories.entity'
 import { CreateSousCategoryDto } from './dtos/create-souscategory.dto'
 import { UpdateSousCategoryDto } from './dtos/update-souscategory.dto'
 
@@ -10,27 +11,39 @@ import { UpdateSousCategoryDto } from './dtos/update-souscategory.dto'
 @Injectable()
 export class SousCategoriesService {
 
-  
   constructor(
     @InjectRepository(SousCategories)
     private readonly sousCategoryRepo: Repository<SousCategories>,
+    @InjectRepository(Categories)
+    private readonly categoryRepo: Repository<Categories>,
   ) {}
 
-  async findsouscategoriesby(category: string):  Promise<SousCategories[]> {
-    const souscat =   await this.sousCategoryRepo.find({ where: { category:category } });
-    return souscat;
+  private async enrichWithCategoryName(
+    items: SousCategories[],
+  ): Promise<(SousCategories & { categoryName: string })[]> {
+    const cats = await this.categoryRepo.find()
+    const catMap = new Map(cats.map(c => [String(c.id), c.name]))
+    return items.map(item => ({
+      ...item,
+      categoryName: catMap.get(item.category) ?? item.category,
+    }))
   }
 
-  async findAll(): Promise<SousCategories[]> {
-    return this.sousCategoryRepo.find();
+  async findsouscategoriesby(category: string): Promise<(SousCategories & { categoryName: string })[]> {
+    const items = await this.sousCategoryRepo.find({ where: { category } })
+    return this.enrichWithCategoryName(items)
   }
 
-  async findOne(id: number): Promise<SousCategories> {
-    const category = await this.sousCategoryRepo.findOne({ where: { id } });
+  async findAll(): Promise<(SousCategories & { categoryName: string })[]> {
+    const items = await this.sousCategoryRepo.find()
+    return this.enrichWithCategoryName(items)
+  }
 
-    if (!category) throw new NotFoundException('SousCategory not found')
-
-    return category;
+  async findOne(id: number): Promise<SousCategories & { categoryName: string }> {
+    const item = await this.sousCategoryRepo.findOne({ where: { id } })
+    if (!item) throw new NotFoundException('SousCategory not found')
+    const [enriched] = await this.enrichWithCategoryName([item])
+    return enriched
   }
 
   async create(dto: CreateSousCategoryDto): Promise<SousCategories> {

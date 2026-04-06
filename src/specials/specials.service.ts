@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Special } from './special.entity';
+import { Shops } from '../shops/shop.entity';
 import { CreateSpecialDto } from './dtos/create-special.dto';
 import { UpdateSpecialDto } from './dtos/update-special.dto';
 
@@ -11,7 +12,27 @@ export class SpecialsService {
   constructor(
     @InjectRepository(Special)
     private readonly repo: Repository<Special>,
+    @InjectRepository(Shops)
+    private readonly shopsRepo: Repository<Shops>,
   ) {}
+
+  /** Enrich specials with shop lat/lng for mobile distance calculation */
+  private async enrichWithShop(specials: Special[]) {
+    const shopIds = [...new Set(specials.map(s => s.shopId).filter(Boolean))];
+    if (shopIds.length === 0) return specials.map(s => ({ ...s }));
+    const shops = await this.shopsRepo.findByIds(shopIds);
+    const shopMap = new Map(shops.map(s => [String(s.id), s]));
+    return specials.map(s => {
+      const shop = shopMap.get(String(s.shopId));
+      return {
+        ...s,
+        shop_latitude: shop?.latitude ?? null,
+        shop_longitude: shop?.longitude ?? null,
+        shop_name: shop?.name ?? null,
+        shop_address: shop?.address ?? null,
+      };
+    });
+  }
 
   async create(dto: CreateSpecialDto): Promise<Special> {
     // Convert date strings to Date if present
@@ -25,9 +46,9 @@ export class SpecialsService {
 
  
 
-  findAll() {
-    // return all specials ordered by creation date (no pagination, no query)
-    return this.repo.find({ order: { createdAt: 'DESC' } });
+  async findAll() {
+    const specials = await this.repo.find({ order: { createdAt: 'DESC' } });
+    return this.enrichWithShop(specials);
   }
 
   async findOne(id: string): Promise<Special> {

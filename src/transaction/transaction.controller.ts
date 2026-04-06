@@ -1,19 +1,18 @@
-import { Controller, Post, Get, Body } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, ParseIntPipe } from '@nestjs/common';
 import { TransactionsService } from './transaction.service';
+import { InitiateDepositDto } from './dtos/initiate-deposit.dto';
 
 @Controller('transactions')
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
 
+  /**
+   * Initiate a wallet top-up. Returns a pending transaction + provider-specific
+   * clientInstructions (Stripe clientSecret or Kkiapay widget config).
+   */
   @Post('deposit/initiate')
-  initiateDeposit(
-    @Body() body: { clientId: number; amount: number; paymentMethod: string },
-  ) {
-    return this.transactionsService.initiateDeposit(
-      body.clientId,
-      body.amount,
-      body.paymentMethod,
-    );
+  initiateDeposit(@Body() dto: InitiateDepositDto) {
+    return this.transactionsService.initiateDeposit(dto);
   }
 
   @Post('deposit/confirm')
@@ -43,7 +42,7 @@ export class TransactionsController {
  
 
   @Get('user/:id')
-  getUserTransactions(@Body('id') clientId: number) {
+  getUserTransactions(@Param('id', ParseIntPipe) clientId: number) {
     return this.transactionsService.getUserTransactions(clientId);
   }
 

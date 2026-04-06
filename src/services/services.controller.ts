@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe, Query } from '@nestjs/common';
 import { ServicesService } from './services.service';
 import { Services } from './services.entity';
 import { CreateServiceDto } from './dtos/create-service.dto';
@@ -14,10 +14,13 @@ export class ServicesController {
     return await this.servicesService.create(createServiceDto);
   }
 
-  // ✅ Get all services
+  // ✅ Get all services, optionally filtered by shop_grade or category
   @Get()
-  async findAll(): Promise<Services[]> {
-    return await this.servicesService.findAll();
+  async findAll(
+    @Query('shop_grade') shopGrade?: string,
+    @Query('category') category?: string,
+  ): Promise<Services[]> {
+    return await this.servicesService.findAll(shopGrade, category);
   }
 
   // ✅ Get service by ID

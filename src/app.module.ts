@@ -34,6 +34,7 @@ import { GeovilleModule } from './geolocation/geoville/geoville.module';
 import { Geoville } from './geolocation/geoville/entities/geoville.entity';
 import { MarketplaceModule } from './marketplace/marketplace.module';
 import { Product } from './marketplace/product.entity';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { Product } from './marketplace/product.entity';
     SpecialsModule,
     GeovilleModule,
     MarketplaceModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsOptional, IsUrl } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional } from 'class-validator';
 
 export class CreateServiceDto {
   @IsNotEmpty()
@@ -13,9 +13,9 @@ export class CreateServiceDto {
   @IsString()
   Category: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  sous_category: string;
+  sous_category?: string;
 
   @IsNotEmpty()
   @IsString()
@@ -29,9 +29,9 @@ export class CreateServiceDto {
   @IsString()
   tags?: string;
 
-  @IsNotEmpty()
-  @IsUrl()
-  imageurl: string;
+  @IsOptional()
+  @IsString()
+  imageurl?: string;
 
   @IsOptional()
   @IsString()

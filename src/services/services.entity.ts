@@ -27,7 +27,7 @@ export class Services {
     @Column({ type: 'text', nullable: true })
     tags: string;
 
-    @Column()
+    @Column({ nullable: true })
     imageurl : string ;
 
     @Column({ nullable: true })

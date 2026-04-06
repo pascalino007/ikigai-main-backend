@@ -23,6 +23,9 @@ export class Product {
   @Column()
   Category: string;
 
+  @Column({ nullable: true })
+  sous_category: string;
+
   @Column()
   status: string;
 

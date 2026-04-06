@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 
 import * as bcrypt from 'bcrypt';
 import { Users } from './user.entity';
+import { ClientWallet } from '../client/client_wallet/client_wallet.entity';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { SigninUserDto } from './dtos/signin-user.dto';
@@ -14,6 +15,8 @@ export class UsersService {
   constructor(
     @InjectRepository(Users)
     private readonly usersRepository: Repository<Users>,
+    @InjectRepository(ClientWallet)
+    private readonly clientWalletRepository: Repository<ClientWallet>,
     private jwtService: JwtService,
   ) {}
 
@@ -52,10 +55,27 @@ export class UsersService {
   });
 
   const savedUser = await this.usersRepository.save(newUser);
+  await this.ensureClientWallet(savedUser.id);
   delete (savedUser as any).password;
 
   return { user: savedUser, rawPassword }; // return plain password once
 }
+
+  /** One wallet per user; idempotent for safe retries. */
+  private async ensureClientWallet(userId: number): Promise<void> {
+    const existing = await this.clientWalletRepository.findOne({
+      where: { client_id: userId },
+    });
+    if (existing) {
+      return;
+    }
+    await this.clientWalletRepository.save(
+      this.clientWalletRepository.create({
+        client_id: userId,
+        balance: 0,
+      }),
+    );
+  }
 
 
 
@@ -91,6 +111,7 @@ export class UsersService {
     }
 
     delete (user as any).password;
+    await this.ensureClientWallet(user.id);
     const payload = { email: user.email, sub: user.id, role: user.role };
     const accessToken = this.jwtService.sign(payload);
     return { message: 'Signin successful', accessToken, user };

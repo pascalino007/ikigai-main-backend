@@ -5,10 +5,11 @@ import { PassportModule } from '@nestjs/passport';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { Users } from './user.entity';
+import { ClientWallet } from '../client/client_wallet/client_wallet.entity';
 
 @Module({
   imports:[
-    TypeOrmModule.forFeature([Users]),
+    TypeOrmModule.forFeature([Users, ClientWallet]),
     PassportModule,
     JwtModule.register({
       secret: 'yourSecretKey', // TODO: Move to environment variables (e.g. process.env.JWT_SECRET)
