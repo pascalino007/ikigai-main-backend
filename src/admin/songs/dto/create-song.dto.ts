@@ -1,50 +1,34 @@
 import { IsString, IsOptional, IsBoolean, IsNumber } from 'class-validator';
 
-export class CreateSliderDto {
+export class CreateSongDto {
   @IsString()
   title: string;
 
   @IsString()
   @IsOptional()
-  description?: string;
-
-  @IsString()
-  @IsOptional()
-  linkUrl?: string;
+  artist?: string;
 
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  isCurrent?: boolean;
 
   @IsNumber()
   @IsOptional()
   order?: number;
 }
 
-export class UpdateSliderDto {
+export class UpdateSongDto {
   @IsString()
   @IsOptional()
   title?: string;
 
   @IsString()
   @IsOptional()
-  description?: string;
-
-  @IsString()
-  @IsOptional()
-  linkUrl?: string;
+  artist?: string;
 
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  isCurrent?: boolean;
 
   @IsNumber()
   @IsOptional()

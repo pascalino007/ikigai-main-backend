@@ -20,6 +20,9 @@ import { CartModule } from './client/cart/cart.module';
 import { Transaction} from './transaction/transaction.entity';
 
 import { SlidersModule } from './admin/sliders/sliders.module';
+import { Slider } from './admin/sliders/sliders.entity';
+import { SongsModule } from './admin/songs/songs.module';
+import { Song } from './admin/songs/song.entity';
 import { EnrollersModule } from './enrollers/enrollers.module';
 
 import { PermissionsModule } from './general/permissions/permissions.module';
@@ -60,7 +63,9 @@ import { PaymentsModule } from './payments/payments.module';
         SousCategories,
         Special,
         Geoville,
-        Product
+        Product,
+        Slider,
+        Song
       ],
       synchronize: true,
     }),
@@ -74,6 +79,7 @@ import { PaymentsModule } from './payments/payments.module';
     TransactionModule,
     CartModule,
     SlidersModule,
+    SongsModule,
     EnrollersModule,
     PermissionsModule,
     ProOwnnersModule,

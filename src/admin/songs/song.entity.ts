@@ -6,28 +6,25 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-@Entity('sliders')
-export class Slider {
+@Entity('songs')
+export class Song {
   @PrimaryGeneratedColumn()
   id: number;
 
   @Column()
   title: string;
 
-  @Column({ type: 'text', nullable: true })
-  description: string;
+  @Column({ nullable: true })
+  artist: string;
 
   @Column({ nullable: true })
-  imageUrl: string;
+  coverUrl: string;
 
-  @Column({ nullable: true })
-  linkUrl: string;
+  @Column()
+  fileUrl: string;
 
   @Column({ default: true })
   isActive: boolean;
-
-  @Column({ default: false })
-  isCurrent: boolean;
 
   @Column({ default: 0 })
   order: number;
