@@ -77,6 +77,10 @@ export class Shops {
   @Column({ default: true })
   is_active: boolean;
 
+  @Column({ default: false })
+  is_verified: boolean;
+
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   createdAt: Date;
+
 }

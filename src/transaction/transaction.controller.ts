@@ -50,4 +50,9 @@ export class TransactionsController {
   getAllTransactions() {
     return this.transactionsService.getAllTransactions();
   }
+
+  @Get('shop/:id')
+  getShopTransactions(@Param('id', ParseIntPipe) shopId: number) {
+    return this.transactionsService.getShopTransactions(shopId);
+  }
 }

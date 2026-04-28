@@ -293,4 +293,14 @@ export class TransactionsService {
       order: { createdAt: 'DESC' },
     });
   }
+
+  /** Get all transactions linked to bookings for a given shop (provider_id = shopId) */
+  async getShopTransactions(shopId: number): Promise<Transaction[]> {
+    return this.transactionRepository
+      .createQueryBuilder('tx')
+      .innerJoin('tx.booking', 'booking')
+      .where('booking.provider_id = :shopId', { shopId })
+      .orderBy('tx.createdAt', 'DESC')
+      .getMany();
+  }
 }

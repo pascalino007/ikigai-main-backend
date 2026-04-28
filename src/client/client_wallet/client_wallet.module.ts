@@ -4,9 +4,10 @@ import { ClientWalletService } from './client_wallet.service';
 import { ClientWallet } from './client_wallet.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Transaction } from '../../transaction/transaction.entity';
+import { Users } from '../../users/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ClientWallet, Transaction])],
+  imports: [TypeOrmModule.forFeature([ClientWallet, Transaction, Users])],
   controllers: [ClientWalletController],
   providers: [ClientWalletService]
 })

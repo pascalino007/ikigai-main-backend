@@ -1,4 +1,5 @@
 import { IsString, IsOptional, IsBoolean, IsNumber } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class CreateSliderDto {
   @IsString()
@@ -14,10 +15,12 @@ export class CreateSliderDto {
 
   @IsBoolean()
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   isActive?: boolean;
 
   @IsBoolean()
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   isCurrent?: boolean;
 
   @IsNumber()
@@ -40,10 +43,12 @@ export class UpdateSliderDto {
 
   @IsBoolean()
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   isActive?: boolean;
 
   @IsBoolean()
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   isCurrent?: boolean;
 
   @IsNumber()

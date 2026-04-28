@@ -38,6 +38,8 @@ import { Geoville } from './geolocation/geoville/entities/geoville.entity';
 import { MarketplaceModule } from './marketplace/marketplace.module';
 import { Product } from './marketplace/product.entity';
 import { PaymentsModule } from './payments/payments.module';
+import { CommandesModule } from './commandes/commandes.module';
+import { Commande } from './commandes/commande.entity';
 
 @Module({
   imports: [
@@ -65,7 +67,8 @@ import { PaymentsModule } from './payments/payments.module';
         Geoville,
         Product,
         Slider,
-        Song
+        Song,
+        Commande,
       ],
       synchronize: true,
     }),
@@ -88,6 +91,7 @@ import { PaymentsModule } from './payments/payments.module';
     GeovilleModule,
     MarketplaceModule,
     PaymentsModule,
+    CommandesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

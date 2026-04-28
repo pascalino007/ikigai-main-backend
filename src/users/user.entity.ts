@@ -1,4 +1,4 @@
-import {Entity , Column, PrimaryGeneratedColumn, AfterInsert} from 'typeorm';
+import {Entity , Column, PrimaryGeneratedColumn} from 'typeorm';
 
 @Entity()
 export class Users {
@@ -36,7 +36,13 @@ export class Users {
     @Column()
     createdAt : Date ;
 
-   
 
+    /** Points earned by enrollers for registering shops */
+    @Column({ type: 'int', default: 0 })
+    points: number;
+
+    /** For enrollers: ID of the manager (or admin) who created them */
+    @Column({ type: 'int', nullable: true })
+    superior_id: number | null;
 
 }

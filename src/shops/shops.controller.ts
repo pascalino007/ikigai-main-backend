@@ -37,6 +37,12 @@ export class ShopsController {
     return await this.shopsService.toggleActive(id);
   }
 
+  // ✅ Toggle shop verification status
+  @Post(':id/toggle-verification')
+  async toggleVerification(@Param('id', ParseIntPipe) id: number): Promise<Shops> {
+    return await this.shopsService.toggleVerification(id);
+  }
+
   // ✅ Get one shop by ID
   @Get(':id')
   async findOne(@Param('id', ParseIntPipe) id: number): Promise<Shops> {
