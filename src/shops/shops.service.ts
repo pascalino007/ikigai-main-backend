@@ -63,6 +63,17 @@ export class ShopsService {
     return await this.shopsRepository.save(shop);
   }
 
+  // ✅ Update shop status (open|busy|closed)
+  async updateStatus(id: number, status: 'open' | 'busy' | 'closed'): Promise<Shops> {
+    if (!['open', 'busy', 'closed'].includes(status)) {
+      throw new NotFoundException(`Invalid status: ${status}`);
+    }
+    const shop = await this.shopsRepository.findOne({ where: { id } });
+    if (!shop) throw new NotFoundException(`Shop with ID ${id} not found`);
+    shop.status = status;
+    return await this.shopsRepository.save(shop);
+  }
+
   // ✅ Toggle shop verification status (only if certificationImage exists)
   async toggleVerification(id: number): Promise<Shops> {
     const shop = await this.shopsRepository.findOne({ where: { id } });

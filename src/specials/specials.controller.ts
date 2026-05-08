@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Delete,
+  Query,
   UsePipes,
   ValidationPipe,
   HttpCode,
@@ -27,8 +28,12 @@ export class SpecialsController {
   }
 
   @Get()
-  findAll() {
-    return this.specialsService.findAll();
+  findAll(
+    @Query('category') category?: string,
+    @Query('shop_grade') shopGrade?: string,
+    @Query('shop_id') shopId?: string,
+  ) {
+    return this.specialsService.findAll(category, shopGrade, shopId);
   }
 
   @Get(':id')

@@ -4,9 +4,10 @@ import { SpecialsService } from './specials.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Special } from './special.entity';
 import { Shops } from '../shops/shop.entity';
+import { Services } from '../services/services.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Special, Shops])],
+  imports: [TypeOrmModule.forFeature([Special, Shops, Services])],
   controllers: [SpecialsController],
   providers: [SpecialsService]
 })

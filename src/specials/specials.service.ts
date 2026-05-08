@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Special } from './special.entity';
 import { Shops } from '../shops/shop.entity';
+import { Services } from '../services/services.entity';
 import { CreateSpecialDto } from './dtos/create-special.dto';
 import { UpdateSpecialDto } from './dtos/update-special.dto';
 
@@ -14,6 +15,8 @@ export class SpecialsService {
     private readonly repo: Repository<Special>,
     @InjectRepository(Shops)
     private readonly shopsRepo: Repository<Shops>,
+    @InjectRepository(Services)
+    private readonly servicesRepo: Repository<Services>,
   ) {}
 
   /** Enrich specials with shop lat/lng for mobile distance calculation */
@@ -30,6 +33,8 @@ export class SpecialsService {
         shop_longitude: shop?.longitude ?? null,
         shop_name: shop?.name ?? null,
         shop_address: shop?.address ?? null,
+        shop_grade: shop?.grade ?? 'basic',
+        shop_profileImageUrl: shop?.profileImageUrl ?? null,
       };
     });
   }
@@ -46,9 +51,32 @@ export class SpecialsService {
 
  
 
-  async findAll() {
-    const specials = await this.repo.find({ order: { createdAt: 'DESC' } });
-    return this.enrichWithShop(specials);
+  async findAll(category?: string, shopGrade?: string, shopId?: string) {
+    let specials: Special[];
+    if (category) {
+      // Find services in this category, then specials for those services
+      const services = await this.servicesRepo.find({ where: { Category: category } });
+      const serviceIds = services.map(s => String(s.id));
+      if (serviceIds.length === 0) return [];
+      specials = await this.repo.find({
+        where: { serviceId: In(serviceIds) },
+        order: { createdAt: 'DESC' },
+      });
+    } else {
+      if (shopId) {
+        specials = await this.repo.find({
+          where: { shopId },
+          order: { createdAt: 'DESC' },
+        });
+      } else {
+        specials = await this.repo.find({ order: { createdAt: 'DESC' } });
+      }
+    }
+    const enriched = await this.enrichWithShop(specials);
+    if (shopGrade) {
+      return enriched.filter(s => (s as any).shop_grade === shopGrade);
+    }
+    return enriched;
   }
 
   async findOne(id: string): Promise<Special> {

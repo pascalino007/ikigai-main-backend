@@ -9,6 +9,8 @@ import {
   UseInterceptors,
   UploadedFile,
   ParseIntPipe,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SlidersService } from './sliders.service';
@@ -40,6 +42,7 @@ export class SlidersController {
   }
 
   @Post()
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   @UseInterceptors(FileInterceptor('image'))
   async create(
     @Body() dto: CreateSliderDto,
@@ -53,6 +56,7 @@ export class SlidersController {
   }
 
   @Put(':id')
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   @UseInterceptors(FileInterceptor('image'))
   async update(
     @Param('id', ParseIntPipe) id: number,

@@ -40,6 +40,8 @@ import { Product } from './marketplace/product.entity';
 import { PaymentsModule } from './payments/payments.module';
 import { CommandesModule } from './commandes/commandes.module';
 import { Commande } from './commandes/commande.entity';
+import { ReviewsModule } from './reviews/reviews.module';
+import { Review } from './reviews/review.entity';
 
 @Module({
   imports: [
@@ -69,6 +71,7 @@ import { Commande } from './commandes/commande.entity';
         Slider,
         Song,
         Commande,
+        Review,
       ],
       synchronize: true,
     }),
@@ -92,6 +95,7 @@ import { Commande } from './commandes/commande.entity';
     MarketplaceModule,
     PaymentsModule,
     CommandesModule,
+    ReviewsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

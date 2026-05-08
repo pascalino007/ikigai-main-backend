@@ -1,28 +1,41 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 @Injectable()
 export class UploadService {
-  private readonly client: S3Client;
-  private readonly bucket: string;
+  private readonly client: S3Client | null = null;
+  private readonly bucket: string | null = null;
+  private readonly logger = new Logger(UploadService.name);
+  private readonly isConfigured: boolean;
 
   constructor(private readonly configService: ConfigService) {
-    const endpointRaw = this.configService.get<string>('SPACES_ENDPOINT')!;
+    const endpointRaw = this.configService.get<string>('SPACES_ENDPOINT');
+    const bucket = this.configService.get<string>('SPACES_BUCKET');
+    const key = this.configService.get<string>('SPACES_KEY');
+    const secret = this.configService.get<string>('SPACES_SECRET');
+
+    if (!endpointRaw || !bucket || !key || !secret) {
+      this.logger.warn('DigitalOcean Spaces not configured. Uploads will fail gracefully.');
+      this.isConfigured = false;
+      return;
+    }
+
     const endpoint = endpointRaw.startsWith('http')
       ? endpointRaw
       : `https://${endpointRaw}`;
 
-    this.bucket = this.configService.get<string>('SPACES_BUCKET')!;
+    this.bucket = bucket;
     this.client = new S3Client({
       endpoint,
       region: this.configService.get<string>('SPACES_REGION') ?? 'us-east-1',
       credentials: {
-        accessKeyId: this.configService.get<string>('SPACES_KEY')!,
-        secretAccessKey: this.configService.get<string>('SPACES_SECRET')!,
+        accessKeyId: key,
+        secretAccessKey: secret,
       },
       forcePathStyle: false,
     });
+    this.isConfigured = true;
   }
 
   /** Public object URL (DigitalOcean Spaces virtual-hosted style). */
@@ -33,6 +46,12 @@ export class UploadService {
   }
 
   async uploadFile(file: Express.Multer.File): Promise<string> {
+    if (!this.isConfigured || !this.client || !this.bucket) {
+      throw new InternalServerErrorException(
+        'File upload not configured. Please set SPACES_ENDPOINT, SPACES_BUCKET, SPACES_KEY, and SPACES_SECRET environment variables.',
+      );
+    }
+
     try {
       const key = `uploads/${Date.now()}-${file.originalname}`;
       await this.client.send(
