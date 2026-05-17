@@ -14,6 +14,7 @@ import { Transaction } from '../../transaction/transaction.entity';
 import { Services } from '../../services/services.entity';
 import { ClientWallet } from '../client_wallet/client_wallet.entity';
 import { InitiateBookingCheckoutDto } from './dtos/initiate-booking-checkout.dto';
+import { BulkBookingCheckoutDto } from './dtos/bulk-booking-checkout.dto';
 import { BookingStatus } from './booking-status.constants';
 import { parseServicePriceToAmount } from './service-price.util';
 import { TransactionMotif, TransactionStatus } from '../../transaction/transaction.contants';
@@ -28,6 +29,24 @@ export interface BookingCheckoutResult {
   transaction: Transaction;
   payment: {
     provider: string;
+    transactionRef: string;
+    amount: number;
+    currency: string;
+    clientInstructions: Record<string, unknown>;
+  };
+}
+
+export interface BulkBookingCheckoutResult {
+  /** 'confirmed' if paid from wallet (single atomic debit), 'pending_payment' if external (single payment intent for the total) */
+  status: 'confirmed' | 'pending_payment';
+  bulkRef: string;
+  totalAmount: number;
+  currency: string;
+  bookings: Bookings[];
+  transactions: Transaction[];
+  payment: {
+    provider: string;
+    /** Shared bulk reference; all transactions in the bulk carry this on `bulkRef`. */
     transactionRef: string;
     amount: number;
     currency: string;
@@ -316,6 +335,337 @@ export class BookingCheckoutService {
           externalPaymentId: `sandbox-${transactionRef}`,
         },
       },
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // BULK CHECKOUT — pay multiple bookings (e.g. cart) in a single payment.
+  // Wallet:   one atomic debit equal to the total, N confirmed bookings + N transactions.
+  // External: one payment intent for the total, N pending bookings + N transactions
+  //           sharing a `bulkRef`. Webhook fans the result out to every transaction.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async initiateBulkCheckout(
+    dto: BulkBookingCheckoutDto,
+  ): Promise<BulkBookingCheckoutResult> {
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException('No items to checkout');
+    }
+
+    // Load every service, validate ownership / availability and snapshot prices.
+    const resolved: Array<{
+      item: BulkBookingCheckoutDto['items'][number];
+      service: Services;
+      amount: number;
+    }> = [];
+
+    for (const item of dto.items) {
+      const service = await this.servicesRepo.findOne({
+        where: { id: item.service_id },
+      });
+      if (!service) {
+        throw new NotFoundException(`Service ${item.service_id} not found`);
+      }
+      if (!service.is_active) {
+        throw new BadRequestException(
+          `Service ${item.service_id} is not available`,
+        );
+      }
+      if (service.provider_id !== item.provider_id) {
+        throw new BadRequestException(
+          `Service ${item.service_id} does not belong to provider ${item.provider_id}`,
+        );
+      }
+      const amount = parseServicePriceToAmount(service.price);
+      resolved.push({ item, service, amount });
+    }
+
+    const totalAmount = resolved.reduce((s, r) => s + r.amount, 0);
+    const currency = 'XOF';
+    const bulkRef = `BULK-${dto.user_id}-${Date.now()}-${crypto
+      .randomBytes(4)
+      .toString('hex')}`;
+
+    if (dto.payment_provider === 'wallet') {
+      return this.bulkCheckoutWithWallet(
+        dto,
+        resolved,
+        totalAmount,
+        currency,
+        bulkRef,
+      );
+    }
+
+    return this.bulkCheckoutWithExternalProvider(
+      dto,
+      resolved,
+      totalAmount,
+      currency,
+      bulkRef,
+    );
+  }
+
+  private async bulkCheckoutWithWallet(
+    dto: BulkBookingCheckoutDto,
+    resolved: Array<{
+      item: BulkBookingCheckoutDto['items'][number];
+      service: Services;
+      amount: number;
+    }>,
+    totalAmount: number,
+    currency: string,
+    bulkRef: string,
+  ): Promise<BulkBookingCheckoutResult> {
+    return this.dataSource.transaction(async (manager) => {
+      // Lock wallet for atomic balance check + single debit of the TOTAL.
+      let wallet = await manager.findOne(ClientWallet, {
+        where: { client_id: dto.user_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!wallet) {
+        wallet = await manager.save(
+          ClientWallet,
+          manager.create(ClientWallet, { client_id: dto.user_id, balance: 0 }),
+        );
+      }
+
+      if (wallet.balance < totalAmount) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.PAYMENT_REQUIRED,
+            error: 'insufficient_balance',
+            message: 'Wallet balance is insufficient for this bulk checkout',
+            balance: wallet.balance,
+            required: totalAmount,
+            deficit: totalAmount - wallet.balance,
+            currency,
+          },
+          HttpStatus.PAYMENT_REQUIRED,
+        );
+      }
+
+      const balanceBefore = wallet.balance;
+      wallet.balance -= totalAmount; // single debit
+      await manager.save(ClientWallet, wallet);
+
+      // Each individual transaction's balanceBefore/After reflects its slice.
+      let runningBalance = balanceBefore;
+      const bookings: Bookings[] = [];
+      const transactions: Transaction[] = [];
+
+      for (const r of resolved) {
+        const bookingEntity = manager.create(Bookings, {
+          user_id: dto.user_id,
+          provider_id: r.item.provider_id,
+          service_id: r.item.service_id,
+          booking_date: r.item.booking_date.slice(0, 10),
+          booking_time: new Date(`1970-01-01T${r.item.booking_time}:00`),
+          booking_status: BookingStatus.CONFIRMED,
+          payement_status: 1,
+          amount: r.amount,
+          currency,
+          qr_checkin_token: crypto.randomUUID().replace(/-/g, ''),
+        });
+        await manager.save(Bookings, bookingEntity);
+        bookings.push(bookingEntity);
+
+        const slicedBefore = runningBalance;
+        runningBalance -= r.amount;
+
+        const txn = manager.create(Transaction, {
+          label: `Booking #${bookingEntity.id} (wallet, bulk)`,
+          fromUserId: dto.user_id,
+          toUserId: r.item.provider_id,
+          amount: r.amount,
+          currency,
+          status: TransactionStatus.SUCCESS,
+          transactionMotifId: TransactionMotif.BOOKING_PAYMENT,
+          transactionRef: `BKG-${bookingEntity.id}-${Date.now()}-${crypto
+            .randomBytes(2)
+            .toString('hex')}`,
+          bulkRef,
+          paymentMethod: 'wallet',
+          paymentProvider: 'wallet',
+          externalPaymentId: null,
+          balanceBefore: slicedBefore,
+          balanceAfter: runningBalance,
+          booking: bookingEntity,
+        });
+        await manager.save(Transaction, txn);
+        transactions.push(txn);
+      }
+
+      return {
+        status: 'confirmed' as const,
+        bulkRef,
+        totalAmount,
+        currency,
+        bookings,
+        transactions,
+        payment: {
+          provider: 'wallet',
+          transactionRef: bulkRef,
+          amount: totalAmount,
+          currency,
+          clientInstructions: {
+            provider: 'wallet',
+            message: 'Bulk booking confirmed and paid from wallet',
+            newBalance: wallet.balance,
+            count: bookings.length,
+          },
+        },
+      };
+    });
+  }
+
+  private async bulkCheckoutWithExternalProvider(
+    dto: BulkBookingCheckoutDto,
+    resolved: Array<{
+      item: BulkBookingCheckoutDto['items'][number];
+      service: Services;
+      amount: number;
+    }>,
+    totalAmount: number,
+    currency: string,
+    bulkRef: string,
+  ): Promise<BulkBookingCheckoutResult> {
+    const wallet = await this.walletRepo.findOne({
+      where: { client_id: dto.user_id },
+    });
+    const balanceSnapshot = wallet?.balance ?? 0;
+
+    const { bookings, transactions } = await this.dataSource.transaction(
+      async (manager) => {
+        const bookings: Bookings[] = [];
+        const transactions: Transaction[] = [];
+
+        for (const r of resolved) {
+          const bookingEntity = manager.create(Bookings, {
+            user_id: dto.user_id,
+            provider_id: r.item.provider_id,
+            service_id: r.item.service_id,
+            booking_date: r.item.booking_date.slice(0, 10),
+            booking_time: new Date(`1970-01-01T${r.item.booking_time}:00`),
+            booking_status: BookingStatus.PENDING_PAYMENT,
+            payement_status: 0,
+            amount: r.amount,
+            currency,
+          });
+          await manager.save(Bookings, bookingEntity);
+          bookings.push(bookingEntity);
+
+          const txn = manager.create(Transaction, {
+            label: `Booking #${bookingEntity.id} (bulk)`,
+            fromUserId: dto.user_id,
+            toUserId: r.item.provider_id,
+            amount: r.amount,
+            currency,
+            status: TransactionStatus.PENDING,
+            transactionMotifId: TransactionMotif.BOOKING_PAYMENT,
+            transactionRef: `BKG-${bookingEntity.id}-${Date.now()}-${crypto
+              .randomBytes(2)
+              .toString('hex')}`,
+            bulkRef,
+            paymentMethod: dto.payment_channel,
+            paymentProvider: dto.payment_provider,
+            externalPaymentId: null,
+            balanceBefore: balanceSnapshot,
+            balanceAfter: balanceSnapshot,
+            booking: bookingEntity,
+          });
+          await manager.save(Transaction, txn);
+          transactions.push(txn);
+        }
+        return { bookings, transactions };
+      },
+    );
+
+    // Build ONE provider intent for the TOTAL, using bulkRef as the merchant reference.
+    const clientInstructions = await this.buildBulkClientInstructions(
+      dto.payment_provider,
+      bulkRef,
+      totalAmount,
+      currency,
+      bookings.length,
+    );
+
+    return {
+      status: 'pending_payment',
+      bulkRef,
+      totalAmount,
+      currency,
+      bookings,
+      transactions,
+      payment: {
+        provider: dto.payment_provider,
+        transactionRef: bulkRef,
+        amount: totalAmount,
+        currency,
+        clientInstructions,
+      },
+    };
+  }
+
+  private async buildBulkClientInstructions(
+    provider: string,
+    bulkRef: string,
+    amount: number,
+    currency: string,
+    count: number,
+  ): Promise<Record<string, unknown>> {
+    if (provider === 'stripe' && this.stripeService.isConfigured) {
+      const intent = await this.stripeService.createPaymentIntent({
+        amount,
+        currency,
+        metadata: {
+          transactionRef: bulkRef,
+          bulkRef,
+          type: 'bulk_booking_payment',
+          count: String(count),
+        },
+      });
+      return {
+        provider: 'stripe',
+        publishableKey: this.stripeService.publishableKey,
+        clientSecret: intent.clientSecret,
+        paymentIntentId: intent.paymentIntentId,
+        transactionRef: bulkRef,
+        bulkRef,
+        amount,
+        currency: currency.toLowerCase(),
+        count,
+      };
+    }
+
+    if (provider === 'kkiapay' && this.kkiapayService.isConfigured) {
+      return {
+        ...this.kkiapayService.buildWidgetPayload({
+          amount,
+          transactionRef: bulkRef,
+          reason: `Bulk booking (${count} services)`,
+        }),
+        transactionRef: bulkRef,
+        bulkRef,
+        count,
+      };
+    }
+
+    // Sandbox fallback
+    return {
+      provider: 'sandbox',
+      hint: 'POST /payments/webhooks/sandbox to simulate success of the whole bulk',
+      simulateWebhook: {
+        method: 'POST',
+        path: '/payments/webhooks/sandbox',
+        body: {
+          transactionRef: bulkRef,
+          status: 'succeeded',
+          externalPaymentId: `sandbox-${bulkRef}`,
+        },
+      },
+      transactionRef: bulkRef,
+      bulkRef,
+      count,
     };
   }
 }

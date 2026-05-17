@@ -37,6 +37,24 @@ export class PaymentWebhookService {
     }
 
     await this.dataSource.transaction(async (manager) => {
+      // ── BULK BOOKING PAYMENT — fan out to all transactions sharing the bulkRef.
+      // The bulkRef is sent to the aggregator as the merchant `transactionRef`.
+      if (event.transactionRef) {
+        const bulkTxns = await manager.find(Transaction, {
+          where: { bulkRef: event.transactionRef },
+          relations: { booking: true },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (bulkTxns.length > 0) {
+          for (const txn of bulkTxns) {
+            if (txn.transactionMotifId === TransactionMotif.BOOKING_PAYMENT) {
+              await this.applyBookingPaymentEvent(manager, txn, event);
+            }
+          }
+          return;
+        }
+      }
+
       let txn = event.transactionRef
         ? await manager.findOne(Transaction, {
             where: { transactionRef: event.transactionRef },
@@ -136,13 +154,18 @@ export class PaymentWebhookService {
       throw new BadRequestException('Booking payment has no linked booking');
     }
 
+    // For bulk transactions, externalPaymentId would collide on the UNIQUE index
+    // across N sub-transactions. We skip setting it on bulk rows (they're already
+    // correlated via the shared `bulkRef`).
+    const canSetExternal = !txn.bulkRef && event.externalPaymentId;
+
     if (event.status === 'succeeded') {
       if (txn.status === TransactionStatus.SUCCESS) {
         return;
       }
       txn.status = TransactionStatus.SUCCESS;
-      if (event.externalPaymentId) {
-        txn.externalPaymentId = event.externalPaymentId;
+      if (canSetExternal) {
+        txn.externalPaymentId = event.externalPaymentId!;
       }
       await manager.save(Transaction, txn);
 
@@ -161,8 +184,8 @@ export class PaymentWebhookService {
         return;
       }
       txn.status = TransactionStatus.FAILED;
-      if (event.externalPaymentId) {
-        txn.externalPaymentId = event.externalPaymentId;
+      if (canSetExternal) {
+        txn.externalPaymentId = event.externalPaymentId!;
       }
       await manager.save(Transaction, txn);
 

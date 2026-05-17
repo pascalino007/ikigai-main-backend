@@ -11,6 +11,7 @@ import {
 import { BookingsService } from './bookings.service';
 import { BookingCheckoutService } from './booking-checkout.service';
 import { InitiateBookingCheckoutDto } from './dtos/initiate-booking-checkout.dto';
+import { BulkBookingCheckoutDto } from './dtos/bulk-booking-checkout.dto';
 import { UserHistoryDto } from './dtos/userhistory.dto';
 
 @Controller('bookings')
@@ -27,6 +28,19 @@ export class BookingsController {
   @Post('checkout')
   checkout(@Body() body: InitiateBookingCheckoutDto) {
     return this.bookingCheckoutService.initiateCheckout(body);
+  }
+
+  /**
+   * Bulk checkout — pay multiple bookings (a cart) in ONE payment.
+   * Wallet: single atomic debit equal to the total of all services.
+   * External (Stripe/Kkiapay): one payment intent for the total. All bookings
+   * are confirmed (or failed) together when the webhook arrives.
+   * Every booking is registered individually and appears separately in
+   * bookings & transactions.
+   */
+  @Post('checkout/bulk')
+  bulkCheckout(@Body() body: BulkBookingCheckoutDto) {
+    return this.bookingCheckoutService.initiateBulkCheckout(body);
   }
 
   /** Mobile: get user bookings grouped by upcoming / finished / cancelled */

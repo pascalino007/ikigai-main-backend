@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, UnauthorizedException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -9,15 +9,20 @@ import { ClientWallet } from '../client/client_wallet/client_wallet.entity';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { SigninUserDto } from './dtos/signin-user.dto';
+import { MailService } from '../mail/mail.service';
+import { resetPasswordTemplate } from '../mail/templates/reset-password.template';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(Users)
     private readonly usersRepository: Repository<Users>,
     @InjectRepository(ClientWallet)
     private readonly clientWalletRepository: Repository<ClientWallet>,
     private jwtService: JwtService,
+    private readonly mailService: MailService,
   ) {}
 
   // ✅ Create a new user
@@ -237,8 +242,17 @@ export class UsersService {
       expired: false,
     });
 
-    // Log OTP to console (dev). In production, send via email service.
-    console.log(`[PASSWORD RESET] OTP for ${normalized}: ${otp}`);
+    // Send OTP via email
+    const html = resetPasswordTemplate(otp);
+    const sent = await this.mailService.sendMail({
+      to: normalized,
+      subject: 'Code de réinitialisation - Ikigai',
+      html,
+    });
+
+    if (!sent) {
+      this.logger.warn(`Failed to send OTP email to ${normalized}, but OTP is still valid`);
+    }
 
     const isProd = process.env.NODE_ENV === 'production';
     return {

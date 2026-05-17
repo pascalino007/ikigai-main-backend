@@ -42,6 +42,7 @@ import { CommandesModule } from './commandes/commandes.module';
 import { Commande } from './commandes/commande.entity';
 import { ReviewsModule } from './reviews/reviews.module';
 import { Review } from './reviews/review.entity';
+import { MailModule } from './mail/mail.module';
 
 @Module({
   imports: [
@@ -96,6 +97,7 @@ import { Review } from './reviews/review.entity';
     PaymentsModule,
     CommandesModule,
     ReviewsModule,
+    MailModule,
   ],
   controllers: [AppController],
   providers: [AppService],

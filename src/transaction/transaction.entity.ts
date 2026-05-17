@@ -6,6 +6,7 @@ import {
   OneToOne,
   JoinColumn,
   RelationId,
+  Index,
 } from 'typeorm';
 import { Bookings } from '../client/bookings/bookings.entity';
 
@@ -41,6 +42,16 @@ export class Transaction {
   /** Internal reference (sent to aggregators as metadata / merchant ref). */
   @Column({ unique: true })
   transactionRef: string;
+
+  /**
+   * Optional shared reference for bulk checkouts (e.g. multi-booking cart paid as one).
+   * All transactions in the same bulk share this ref; a single payment intent is
+   * created with bulkRef as its merchant reference, and the webhook fans out
+   * the result to every transaction with this bulkRef.
+   */
+  @Index()
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  bulkRef: string | null;
 
   /** wallet | card | mobile_money — channel used with our ledger */
   @Column()
