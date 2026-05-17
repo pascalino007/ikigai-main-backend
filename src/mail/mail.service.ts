@@ -7,14 +7,21 @@ export class MailService {
   private transporter: nodemailer.Transporter;
 
   constructor() {
+    const user = process.env.MAIL_USER || 'myikigai2025@gmail.com';
+    const pass = process.env.MAIL_PASS || 'vglryzuitfckbtlz';
+
     this.transporter = nodemailer.createTransport({
-      host: 'mail.privateemail.com',
-      port: 465,
-      secure: true,
-      auth: {
-        user: 'noreply@ikilist.com',
-        pass: 'noreply@ikilist.com',
-      },
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      requireTLS: true,
+      auth: { user, pass },
+    });
+
+    this.transporter.verify().then(() => {
+      this.logger.log('SMTP connection verified successfully');
+    }).catch((err) => {
+      this.logger.error(`SMTP verify failed: ${err.code} ${err.command} ${err.response}`);
     });
   }
 
@@ -25,7 +32,7 @@ export class MailService {
   }): Promise<boolean> {
     try {
       const info = await this.transporter.sendMail({
-        from: '"Ikigai" <noreply@ikilist.com>',
+        from: '"Ikigai" <myikigai2025@gmail.com>',
         to: options.to,
         subject: options.subject,
         html: options.html,
