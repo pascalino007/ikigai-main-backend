@@ -24,6 +24,10 @@ export class Services {
     @Column()
     duration : string ;
 
+    /** Actual service duration in minutes for slot calculation */
+    @Column({ type: 'int', default: 30 })
+    duration_minutes: number;
+
     @Column({ type: 'text', nullable: true })
     tags: string;
 

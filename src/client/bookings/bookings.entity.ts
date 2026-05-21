@@ -41,6 +41,14 @@ export class Bookings {
   @Column()
   service_id: number;
 
+  /** Worker assigned to this booking (nullable for legacy bookings) */
+  @Column({ type: 'int', nullable: true })
+  worker_id: number | null;
+
+  /** Booking end time (start + service duration) for collision detection */
+  @Column({ type: 'datetime', nullable: true })
+  booking_end_time: Date | null;
+
   /** Price snapshot in minor / whole currency units (e.g. FCFA). */
   @Column({ type: 'int' })
   amount: number;

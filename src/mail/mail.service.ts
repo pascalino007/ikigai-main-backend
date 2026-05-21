@@ -8,7 +8,7 @@ export class MailService {
 
   constructor() {
     const user = process.env.MAIL_USER || 'myikigai2025@gmail.com';
-    const pass = process.env.MAIL_PASS || 'vglryzuitfckbtlz';
+    const pass = process.env.MAIL_PASS || 'zmsvmyxidjfodosx';
 
     this.transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',

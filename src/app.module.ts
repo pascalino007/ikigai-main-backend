@@ -43,6 +43,10 @@ import { Commande } from './commandes/commande.entity';
 import { ReviewsModule } from './reviews/reviews.module';
 import { Review } from './reviews/review.entity';
 import { MailModule } from './mail/mail.module';
+import { WorkersModule } from './workers/workers.module';
+import { Worker } from './workers/entities/worker.entity';
+import { WorkerSchedule } from './workers/entities/worker-schedule.entity';
+import { WorkerException } from './workers/entities/worker-exception.entity';
 
 @Module({
   imports: [
@@ -73,6 +77,9 @@ import { MailModule } from './mail/mail.module';
         Song,
         Commande,
         Review,
+        Worker,
+        WorkerSchedule,
+        WorkerException,
       ],
       synchronize: true,
     }),
@@ -98,6 +105,7 @@ import { MailModule } from './mail/mail.module';
     CommandesModule,
     ReviewsModule,
     MailModule,
+    WorkersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

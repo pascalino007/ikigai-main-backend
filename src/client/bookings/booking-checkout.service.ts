@@ -85,14 +85,19 @@ export class BookingCheckoutService {
 
     const amount = parseServicePriceToAmount(service.price);
     const currency = 'XOF';
+    const durationMinutes = service.duration_minutes || 30;
+
+    // Compute booking_end_time
+    const bookingStart = new Date(`1970-01-01T${dto.booking_time}:00`);
+    const bookingEnd = new Date(bookingStart.getTime() + durationMinutes * 60000);
 
     // ── WALLET PAYMENT PATH ──
     if (dto.payment_provider === 'wallet') {
-      return this.checkoutWithWallet(dto, amount, currency);
+      return this.checkoutWithWallet(dto, amount, currency, bookingEnd);
     }
 
     // ── EXTERNAL PAYMENT PATH (Stripe / Kkiapay / sandbox) ──
-    return this.checkoutWithExternalProvider(dto, amount, currency);
+    return this.checkoutWithExternalProvider(dto, amount, currency, bookingEnd);
   }
 
   /**
@@ -103,6 +108,7 @@ export class BookingCheckoutService {
     dto: InitiateBookingCheckoutDto,
     amount: number,
     currency: string,
+    bookingEnd: Date,
   ): Promise<BookingCheckoutResult> {
     // Payment goes to the service provider
     const settlementUserId = dto.provider_id;
@@ -147,8 +153,10 @@ export class BookingCheckoutService {
         user_id: dto.user_id,
         provider_id: dto.provider_id,
         service_id: dto.service_id,
+        worker_id: dto.worker_id || null,
         booking_date: dto.booking_date.slice(0, 10),
         booking_time: new Date(`1970-01-01T${dto.booking_time}:00`),
+        booking_end_time: bookingEnd,
         booking_status: BookingStatus.CONFIRMED,
         payement_status: 1,
         amount,
@@ -205,6 +213,7 @@ export class BookingCheckoutService {
     dto: InitiateBookingCheckoutDto,
     amount: number,
     currency: string,
+    bookingEnd: Date,
   ): Promise<BookingCheckoutResult> {
     // Payment goes to the service provider
     const settlementUserId = dto.provider_id;
@@ -220,8 +229,10 @@ export class BookingCheckoutService {
           user_id: dto.user_id,
           provider_id: dto.provider_id,
           service_id: dto.service_id,
+          worker_id: dto.worker_id || null,
           booking_date: dto.booking_date.slice(0, 10),
           booking_time: new Date(`1970-01-01T${dto.booking_time}:00`),
+          booking_end_time: bookingEnd,
           booking_status: BookingStatus.PENDING_PAYMENT,
           payement_status: 0,
           amount,

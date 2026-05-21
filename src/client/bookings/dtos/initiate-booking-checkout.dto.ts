@@ -3,6 +3,7 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
 } from 'class-validator';
@@ -50,4 +51,9 @@ export class InitiateBookingCheckoutDto {
   @IsString()
   @IsIn([...PAYMENT_PROVIDERS])
   payment_provider: PaymentProviderId;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  worker_id?: number;
 }
