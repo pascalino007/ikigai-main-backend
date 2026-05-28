@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
 import { ProOwnners } from './pro_ownners.entity';
+import { Users } from '../users/user.entity';
 import { CreateProOwnnerDto } from './dtos/create-proownner.dto';
 import { UpdateProOwnnerDto } from './dtos/update-proownner.dto';
 
@@ -11,15 +13,35 @@ export class ProOwnnersService {
   constructor(
     @InjectRepository(ProOwnners)
     private readonly proOwnnersRepository: Repository<ProOwnners>,
+    @InjectRepository(Users)
+    private readonly usersRepository: Repository<Users>,
   ) {}
 
-  // ✅ Create a ProOwner
-  async create(createDto: CreateProOwnnerDto): Promise<ProOwnners> {
+  // ✅ Create a ProOwner and auto-create a provider user
+  async create(createDto: CreateProOwnnerDto): Promise<{ proOwner: ProOwnners; rawPassword: string }> {
     const proOwner = this.proOwnnersRepository.create({
       ...createDto,
       createdAt: new Date(),
     });
-    return await this.proOwnnersRepository.save(proOwner);
+    const savedProOwner = await this.proOwnnersRepository.save(proOwner);
+
+    const rawPassword = 'ikigai@2026';
+    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+
+    const user = this.usersRepository.create({
+      firstname: savedProOwner.firstname,
+      lastname: savedProOwner.lastname,
+      email: savedProOwner.email,
+      phone: savedProOwner.phone_number,
+      password: hashedPassword,
+      role: 'provider',
+      image: savedProOwner.profileImageUrl || '',
+      is_active: true,
+      createdAt: new Date(),
+    });
+    await this.usersRepository.save(user);
+
+    return { proOwner: savedProOwner, rawPassword };
   }
 
   // ✅ Get all ProOwners

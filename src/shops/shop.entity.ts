@@ -68,7 +68,10 @@ export class Shops {
 
   @Column({ type: 'text', nullable: true })
   owner: string;
-  
+
+  @Column({ type: 'int', nullable: true })
+  user_id: number | null;
+
   @Column()
   registered_by: string;
 

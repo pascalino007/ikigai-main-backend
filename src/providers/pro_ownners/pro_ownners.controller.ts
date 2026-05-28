@@ -9,9 +9,9 @@ import { UpdateProOwnnerDto } from './dtos/update-proownner.dto';
 export class ProOwnnersController {
   constructor(private readonly service: ProOwnnersService) {}
 
-  // ✅ Create ProOwner
+  // ✅ Create ProOwner (also auto-creates a provider user with default password)
   @Post()
-  async create(@Body() createDto: CreateProOwnnerDto): Promise<ProOwnners> {
+  async create(@Body() createDto: CreateProOwnnerDto): Promise<{ proOwner: ProOwnners; rawPassword: string }> {
     return await this.service.create(createDto);
   }
 

@@ -18,8 +18,20 @@ export class ShopsService {
   ) {}
 
   // ✅ Create a new shop — awards points to enroller if registered_by is a numeric enroller ID
+  // Also links shop to provider user via owner email
   async create(createShopDto: CreateShopDto): Promise<Shops> {
     const newShop = this.shopsRepository.create(createShopDto);
+
+    // Link shop to provider user via owner email
+    if (createShopDto.owner) {
+      const provider = await this.usersRepository.findOne({
+        where: { email: createShopDto.owner, role: 'provider' },
+      });
+      if (provider) {
+        newShop.user_id = provider.id;
+      }
+    }
+
     const savedShop = await this.shopsRepository.save(newShop);
 
     const enrollerId = parseInt(createShopDto.registered_by, 10);

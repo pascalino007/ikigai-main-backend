@@ -6,6 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { Users } from './user.entity';
 import { ClientWallet } from '../client/client_wallet/client_wallet.entity';
+import { Shops } from '../shops/shop.entity';
 import { CreateUserDto } from './dtos/create-user.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { SigninUserDto } from './dtos/signin-user.dto';
@@ -21,6 +22,8 @@ export class UsersService {
     private readonly usersRepository: Repository<Users>,
     @InjectRepository(ClientWallet)
     private readonly clientWalletRepository: Repository<ClientWallet>,
+    @InjectRepository(Shops)
+    private readonly shopsRepository: Repository<Shops>,
     private jwtService: JwtService,
     private readonly mailService: MailService,
   ) {}
@@ -84,7 +87,7 @@ export class UsersService {
 
 
 
-    async signin(signinDto: SigninUserDto): Promise<{ message: string; accessToken: string; user: Users }> {
+    async signin(signinDto: SigninUserDto): Promise<{ message: string; accessToken: string; user: Users; shop?: Shops | null }> {
     const { email: rawEmail, password } = signinDto;
 
     if (!rawEmail || !password) {
@@ -119,7 +122,13 @@ export class UsersService {
     await this.ensureClientWallet(user.id);
     const payload = { email: user.email, sub: user.id, role: user.role };
     const accessToken = this.jwtService.sign(payload);
-    return { message: 'Signin successful', accessToken, user };
+
+    let shop: Shops | null = null;
+    if (user.role === 'provider') {
+      shop = await this.shopsRepository.findOne({ where: { user_id: user.id } });
+    }
+
+    return { message: 'Signin successful', accessToken, user, shop };
   }
 
   // ✅ Get all users

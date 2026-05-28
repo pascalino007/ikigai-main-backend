@@ -69,6 +69,11 @@ export class CreateShopDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
+  user_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
   longitude?: number;
 
   @IsOptional()
