@@ -78,4 +78,33 @@ export class ProOwnnersService {
     }
     return { message: `ProOwner with ID ${id} deleted successfully` };
   }
+
+  // ✅ Create a user account for an existing ProOwner (for old providers without credentials)
+  async createUserForProvider(id: number): Promise<{ message: string; rawPassword: string }> {
+    const proOwner = await this.proOwnnersRepository.findOne({ where: { id } });
+    if (!proOwner) throw new NotFoundException(`ProOwner with ID ${id} not found`);
+
+    const existingUser = await this.usersRepository.findOne({ where: { email: proOwner.email } });
+    if (existingUser) {
+      throw new Error(`User account already exists for ${proOwner.email}`);
+    }
+
+    const rawPassword = 'ikigai@2026';
+    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+
+    const user = this.usersRepository.create({
+      firstname: proOwner.firstname,
+      lastname: proOwner.lastname,
+      email: proOwner.email,
+      phone: proOwner.phone_number,
+      password: hashedPassword,
+      role: 'provider',
+      image: proOwner.profileImageUrl || '',
+      is_active: true,
+      createdAt: new Date(),
+    });
+    await this.usersRepository.save(user);
+
+    return { message: `User account created for ${proOwner.email}`, rawPassword };
+  }
 }

@@ -48,5 +48,11 @@ export class ProOwnnersController {
   async remove(@Param('id', ParseIntPipe) id: number) {
     return await this.service.remove(id);
   }
+
+  // ✅ Create user account for an existing ProOwner (for old providers)
+  @Post(':id/create-user')
+  async createUserForProvider(@Param('id', ParseIntPipe) id: number) {
+    return await this.service.createUserForProvider(id);
+  }
 }
 
