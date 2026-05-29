@@ -206,11 +206,12 @@ export class BookingsService {
   }
 
   async findByProvider(provider_id: number) {
-    return await this.bookingRepo.find({
+    const bookings = await this.bookingRepo.find({
       where: { provider_id },
       order: { booking_date: 'DESC' },
       relations: { transaction: true },
     });
+    return this.enrichBookings(bookings);
   }
 
   async findOne(id: number) {

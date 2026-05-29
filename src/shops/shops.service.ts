@@ -56,6 +56,19 @@ export class ShopsService {
     }
 
     Object.assign(shop, updateShopDto);
+
+    // Re-link provider by owner email whenever owner changes
+    if (updateShopDto.owner !== undefined) {
+      if (updateShopDto.owner) {
+        const provider = await this.usersRepository.findOne({
+          where: { email: updateShopDto.owner, role: 'provider' },
+        });
+        shop.user_id = provider ? provider.id : null;
+      } else {
+        shop.user_id = null;
+      }
+    }
+
     return await this.shopsRepository.save(shop);
   } 
 

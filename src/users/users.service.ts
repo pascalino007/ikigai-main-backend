@@ -126,6 +126,15 @@ export class UsersService {
     let shop: Shops | null = null;
     if (user.role === 'provider') {
       shop = await this.shopsRepository.findOne({ where: { user_id: user.id } });
+      // Fallback: match by owner email for shops not yet linked via user_id
+      if (!shop) {
+        shop = await this.shopsRepository.findOne({ where: { owner: user.email } });
+        // Opportunistically fix the user_id for next logins
+        if (shop && shop.user_id == null) {
+          shop.user_id = user.id;
+          await this.shopsRepository.save(shop);
+        }
+      }
     }
 
     return { message: 'Signin successful', accessToken, user, shop };
