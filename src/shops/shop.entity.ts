@@ -1,7 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 
 export type ShopGrade = 'basic' | 'pro' | 'elite';
-export type ShopStatus = 'open' | 'busy' | 'closed';
+export type ShopStatus = 'open' | 'ouvert' | 'occupé' | 'free' | 'closed';
 
 @Entity()
 export class Shops {
@@ -78,7 +78,7 @@ export class Shops {
   @Column({ type: 'enum', enum: ['basic', 'pro', 'elite'], default: 'basic' })
   grade: ShopGrade;
 
-  @Column({ type: 'enum', enum: ['open', 'busy', 'closed'], default: 'open' })
+  @Column({ type: 'enum', enum: ['open', 'ouvert', 'occupé', 'free', 'closed'], default: 'ouvert' })
   status: ShopStatus;
 
   @Column({ default: true })

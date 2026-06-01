@@ -43,11 +43,11 @@ export class ShopsController {
     return await this.shopsService.toggleVerification(id);
   }
 
-  // ✅ Update shop status (open|busy|closed)
+  // ✅ Update shop status (ouvert|occupé|free|closed)
   @Patch(':id/status')
   async updateStatus(
     @Param('id', ParseIntPipe) id: number,
-    @Body('status') status: 'open' | 'busy' | 'closed',
+    @Body('status') status: 'open' | 'ouvert' | 'occupé' | 'free' | 'closed',
   ): Promise<Shops> {
     return await this.shopsService.updateStatus(id, status);
   }

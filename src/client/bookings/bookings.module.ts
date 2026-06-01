@@ -7,12 +7,13 @@ import { Bookings } from './bookings.entity';
 import { Transaction } from '../../transaction/transaction.entity';
 import { Services } from '../../services/services.entity';
 import { Shops } from '../../shops/shop.entity';
+import { Users } from '../../users/user.entity';
 import { ClientWallet } from '../client_wallet/client_wallet.entity';
 import { PaymentsModule } from '../../payments/payments.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Bookings, Transaction, Services, Shops, ClientWallet]),
+    TypeOrmModule.forFeature([Bookings, Transaction, Services, Shops, ClientWallet, Users]),
     PaymentsModule,
   ],
   controllers: [BookingsController],

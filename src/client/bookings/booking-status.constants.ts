@@ -5,4 +5,5 @@ export const BookingStatus = {
   PAYMENT_FAILED: 3,
   IN_SERVICE: 4,
   DONE: 5,
+  NO_SHOW: 6,
 } as const;

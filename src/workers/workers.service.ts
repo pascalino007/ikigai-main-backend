@@ -249,22 +249,23 @@ export class WorkersService {
 
     let currentMinutes = startH * 60 + startM;
     const endMinutes = endH * 60 + endM;
+    const stepMinutes = 15; // fine-grained step for maximum flexibility
 
     while (currentMinutes + durationMinutes <= endMinutes) {
       const slotStart = this.minutesToTime(currentMinutes);
       const slotEnd = this.minutesToTime(currentMinutes + durationMinutes);
 
-      // Check collision with existing bookings
+      // Check collision with existing bookings (including buffer after each booking)
       const available = !this.hasCollision(
         currentMinutes,
         currentMinutes + durationMinutes,
+        bufferMinutes,
         existingBookings,
       );
 
       slots.push({ start: slotStart, end: slotEnd, available });
 
-      // Move to next slot (duration + buffer)
-      currentMinutes += durationMinutes + bufferMinutes;
+      currentMinutes += stepMinutes;
     }
 
     return slots;
@@ -273,13 +274,14 @@ export class WorkersService {
   private hasCollision(
     slotStartMin: number,
     slotEndMin: number,
+    bufferMinutes: number,
     bookings: { start: Date; end: Date }[],
   ): boolean {
     for (const booking of bookings) {
       const bStartMin = booking.start.getHours() * 60 + booking.start.getMinutes();
-      const bEndMin = booking.end.getHours() * 60 + booking.end.getMinutes();
+      const bEndMin = booking.end.getHours() * 60 + booking.end.getMinutes() + bufferMinutes;
 
-      // Overlap check: slot starts before booking ends AND slot ends after booking starts
+      // Overlap check: slot starts before buffered booking ends AND slot ends after booking starts
       if (slotStartMin < bEndMin && slotEndMin > bStartMin) {
         return true;
       }

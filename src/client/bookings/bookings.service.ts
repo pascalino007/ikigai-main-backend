@@ -8,6 +8,7 @@ import { Repository, Between, In } from 'typeorm';
 import { Bookings } from './bookings.entity';
 import { Services } from '../../services/services.entity';
 import { Shops } from '../../shops/shop.entity';
+import { Users } from '../../users/user.entity';
 import { BookingStatus } from './booking-status.constants';
 import * as crypto from 'crypto';
 
@@ -20,6 +21,8 @@ export class BookingsService {
     private readonly serviceRepo: Repository<Services>,
     @InjectRepository(Shops)
     private readonly shopRepo: Repository<Shops>,
+    @InjectRepository(Users)
+    private readonly userRepo: Repository<Users>,
   ) {}
 
   // ── helpers ──
@@ -28,7 +31,7 @@ export class BookingsService {
     return crypto.randomUUID().replace(/-/g, '');
   }
 
-  /** Enrich a booking with service + shop data for the mobile app */
+  /** Enrich a booking with service + shop + user data for mobile & provider apps */
   private async enrichBooking(booking: Bookings) {
     const service = await this.serviceRepo.findOne({
       where: { id: booking.service_id },
@@ -36,9 +39,16 @@ export class BookingsService {
     const shop = service?.provider_id
       ? await this.shopRepo.findOne({ where: { id: service.provider_id } })
       : null;
+    const user = await this.userRepo.findOne({
+      where: { id: booking.user_id },
+    });
 
     return {
       ...booking,
+      service_name: service?.name ?? null,
+      client_name: user ? `${user.firstname ?? ''} ${user.lastname ?? ''}`.trim() || null : null,
+      client_phone: user?.phone ?? null,
+      shop_name: shop?.name ?? null,
       service: service
         ? {
             id: service.id,
@@ -62,6 +72,15 @@ export class BookingsService {
             phone: shop.phone,
           }
         : null,
+      user: user
+        ? {
+            id: user.id,
+            firstname: user.firstname,
+            lastname: user.lastname,
+            phone: user.phone,
+            email: user.email,
+          }
+        : null,
     };
   }
 
@@ -83,13 +102,34 @@ export class BookingsService {
       order: { booking_date: 'DESC', booking_time: 'DESC' },
     });
 
+    const now = new Date();
+    const toUpdate: Bookings[] = [];
+
+    for (const b of all) {
+      if (b.booking_status === BookingStatus.CONFIRMED && b.booking_date) {
+        const bookingDateTime = b.booking_time
+          ? new Date(`${b.booking_date}T${b.booking_time.toISOString().slice(11, 19)}`)
+          : new Date(b.booking_date);
+        if (bookingDateTime < now) {
+          b.booking_status = BookingStatus.NO_SHOW;
+          toUpdate.push(b);
+        }
+      }
+    }
+
+    if (toUpdate.length > 0) {
+      await this.bookingRepo.save(toUpdate);
+    }
+
     const upcoming = all.filter(
       (b) =>
         b.booking_status === BookingStatus.CONFIRMED ||
         b.booking_status === BookingStatus.IN_SERVICE,
     );
     const finished = all.filter(
-      (b) => b.booking_status === BookingStatus.DONE,
+      (b) =>
+        b.booking_status === BookingStatus.DONE ||
+        b.booking_status === BookingStatus.NO_SHOW,
     );
     const cancelled = all.filter(
       (b) => b.booking_status === BookingStatus.CANCELLED,
@@ -116,11 +156,16 @@ export class BookingsService {
     if (!booking) throw new NotFoundException('Booking not found');
     if (
       booking.booking_status !== BookingStatus.CONFIRMED &&
-      booking.booking_status !== BookingStatus.PENDING_PAYMENT
+      booking.booking_status !== BookingStatus.PENDING_PAYMENT &&
+      booking.booking_status !== BookingStatus.NO_SHOW
     ) {
       throw new BadRequestException(
-        'Only confirmed or pending bookings can be rescheduled',
+        'Only confirmed, pending or missed bookings can be rescheduled',
       );
+    }
+    // When rescheduling a missed booking, restore it to confirmed
+    if (booking.booking_status === BookingStatus.NO_SHOW) {
+      booking.booking_status = BookingStatus.CONFIRMED;
     }
 
     booking.booking_date = newDate;
@@ -189,7 +234,7 @@ export class BookingsService {
   async userHistory(user_id: number, start: Date, end: Date) {
     const startDay = start.toISOString().slice(0, 10);
     const endDay = end.toISOString().slice(0, 10);
-    return await this.bookingRepo.find({
+    const bookings = await this.bookingRepo.find({
       where: {
         user_id,
         booking_date: Between(startDay, endDay),
@@ -197,12 +242,14 @@ export class BookingsService {
       order: { booking_date: 'DESC' },
       relations: { transaction: true },
     });
+    return this.enrichBookings(bookings);
   }
 
   async findAll() {
-    return await this.bookingRepo.find({
+    const bookings = await this.bookingRepo.find({
       relations: { transaction: true },
     });
+    return this.enrichBookings(bookings);
   }
 
   async findByProvider(provider_id: number) {
@@ -215,9 +262,11 @@ export class BookingsService {
   }
 
   async findOne(id: number) {
-    return await this.bookingRepo.findOne({
+    const booking = await this.bookingRepo.findOne({
       where: { id },
       relations: { transaction: true },
     });
+    if (!booking) throw new NotFoundException('Booking not found');
+    return this.enrichBooking(booking);
   }
 }

@@ -72,12 +72,58 @@ export class ShopsService {
     return await this.shopsRepository.save(shop);
   } 
 
-  // ✅ (Optional) Get all shops, optionally filtered by grade
-  async findAll(grade?: string): Promise<Shops[]> {
-    if (grade) {
-      return await this.shopsRepository.find({ where: { grade: grade as any } });
+  // ✅ Compute effective status from working hours (UTC = local for Togo/Bénin)
+  private _computeEffectiveStatus(shop: Shops): string {
+    const now = new Date();
+    const dayNames = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+    const todayName = dayNames[now.getUTCDay()];
+
+    if (!shop.workingHours || !Array.isArray(shop.workingHours) || shop.workingHours.length === 0) {
+      return shop.status || 'ouvert';
     }
-    return await this.shopsRepository.find();
+
+    const todayEntry = shop.workingHours.find(
+      (wh) => wh && wh.length >= 2 && wh[0].toLowerCase() === todayName.toLowerCase(),
+    );
+
+    if (!todayEntry) {
+      return 'closed';
+    }
+
+    const hoursStr = todayEntry[1].trim();
+    if (hoursStr.toLowerCase() === 'fermé' || hoursStr === '-') {
+      return 'closed';
+    }
+
+    const timeMatch = hoursStr.match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
+    if (!timeMatch) {
+      return shop.status || 'ouvert';
+    }
+
+    const [, openH, openM, closeH, closeM] = timeMatch.map(Number);
+    const openMinutes = openH * 60 + openM;
+    const closeMinutes = closeH * 60 + closeM;
+    const currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+
+    if (currentMinutes < openMinutes || currentMinutes >= closeMinutes) {
+      return 'closed';
+    }
+
+    return shop.status || 'ouvert';
+  }
+
+// ✅ (Optional) Get all shops, optionally filtered by grade
+  async findAll(grade?: string): Promise<Shops[]> {
+    let shops: Shops[];
+    if (grade) {
+      shops = await this.shopsRepository.find({ where: { grade: grade as any } });
+    } else {
+      shops = await this.shopsRepository.find();
+    }
+    for (const shop of shops) {
+      shop.status = this._computeEffectiveStatus(shop) as any;
+    }
+    return shops;
   }
 
   // ✅ Toggle shop visibility on mobile app
@@ -88,9 +134,10 @@ export class ShopsService {
     return await this.shopsRepository.save(shop);
   }
 
-  // ✅ Update shop status (open|busy|closed)
-  async updateStatus(id: number, status: 'open' | 'busy' | 'closed'): Promise<Shops> {
-    if (!['open', 'busy', 'closed'].includes(status)) {
+  // ✅ Update shop status (ouvert|occupé|free|closed)
+  async updateStatus(id: number, status: 'open' | 'ouvert' | 'occupé' | 'free' | 'closed'): Promise<Shops> {
+    const valid = ['open', 'ouvert', 'occupé', 'free', 'closed'];
+    if (!valid.includes(status)) {
       throw new NotFoundException(`Invalid status: ${status}`);
     }
     const shop = await this.shopsRepository.findOne({ where: { id } });
@@ -114,6 +161,7 @@ export class ShopsService {
   async findOne(id: number): Promise<Shops> {
     const shop = await this.shopsRepository.findOne({ where: { id } });
     if (!shop) throw new NotFoundException(`Shop with ID ${id} not found`);
+    shop.status = this._computeEffectiveStatus(shop) as any;
     return shop;
   }
 
