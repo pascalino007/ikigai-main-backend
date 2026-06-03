@@ -69,6 +69,11 @@ export class WorkersController {
     return this.workersService.removeException(id);
   }
 
+  @Get(':id/bookings')
+  getWorkerBookings(@Param('id', ParseIntPipe) id: number) {
+    return this.workersService.getWorkerBookings(id);
+  }
+
   // ─── AVAILABILITY ─────────────────────────────────────────────────────
 
   /**

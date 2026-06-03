@@ -303,4 +303,50 @@ export class TransactionsService {
       .orderBy('tx.createdAt', 'DESC')
       .getMany();
   }
+
+  async requestWithdrawal(body: {
+    userId: number;
+    amount: number;
+    phone?: string;
+  }): Promise<Transaction> {
+    const { userId, amount, phone } = body;
+    if (!amount || amount <= 0) {
+      throw new BadRequestException('Invalid withdrawal amount');
+    }
+
+    const wallet = await this.clientWalletRepository.findOne({
+      where: { client_id: userId },
+    });
+    if (!wallet) {
+      throw new NotFoundException('Wallet not found');
+    }
+    if (wallet.balance < amount) {
+      throw new BadRequestException('Insufficient balance');
+    }
+
+    const transactionRef = `WDR-${Date.now()}-${userId}`;
+    const transaction = this.transactionRepository.create({
+      label: `Withdrawal request${phone ? ` to ${phone}` : ''}`,
+      fromUserId: userId,
+      toUserId: 0,
+      amount,
+      currency: 'XOF',
+      paymentMethod: 'mobile_money',
+      paymentProvider: 'manual',
+      externalPaymentId: null,
+      status: TransactionStatus.PENDING,
+      transactionMotifId: TransactionMotif.WITHDRAWAL,
+      transactionRef,
+      balanceBefore: wallet.balance,
+      balanceAfter: wallet.balance - amount,
+    });
+
+    // Deduct immediately (admin will process manually)
+    wallet.balance -= amount;
+    await this.clientWalletRepository.save(wallet);
+    transaction.balanceAfter = wallet.balance;
+    transaction.status = TransactionStatus.SUCCESS;
+
+    return this.transactionRepository.save(transaction);
+  }
 }

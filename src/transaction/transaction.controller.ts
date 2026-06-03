@@ -55,4 +55,11 @@ export class TransactionsController {
   getShopTransactions(@Param('id', ParseIntPipe) shopId: number) {
     return this.transactionsService.getShopTransactions(shopId);
   }
+
+  @Post('withdrawal/request')
+  requestWithdrawal(
+    @Body() body: { userId: number; amount: number; phone?: string },
+  ) {
+    return this.transactionsService.requestWithdrawal(body);
+  }
 }

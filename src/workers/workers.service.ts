@@ -112,6 +112,26 @@ export class WorkersService {
     await this.workerRepo.remove(worker);
   }
 
+  // ─── BOOKINGS BY WORKER ────────────────────────────────────────────────
+
+  async getWorkerBookings(workerId: number): Promise<any[]> {
+    await this.findOne(workerId); // ensure exists
+    const bookings = await this.bookingsRepo.find({
+      where: { worker_id: workerId },
+      order: { booking_date: 'DESC', booking_time: 'DESC' },
+    });
+    const enriched: any[] = [];
+    for (const b of bookings) {
+      const service = await this.servicesRepo.findOne({ where: { id: b.service_id } });
+      enriched.push({
+        ...b,
+        service_name: service?.name ?? null,
+        service_image_url: service?.imageurl ?? null,
+      });
+    }
+    return enriched;
+  }
+
   // ─── EXCEPTIONS ────────────────────────────────────────────────────────
 
   async addException(dto: CreateExceptionDto): Promise<WorkerException> {

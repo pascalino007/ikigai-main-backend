@@ -8,13 +8,16 @@ import { Transaction } from '../../transaction/transaction.entity';
 import { Services } from '../../services/services.entity';
 import { Shops } from '../../shops/shop.entity';
 import { Users } from '../../users/user.entity';
+import { Worker } from '../../workers/entities/worker.entity';
 import { ClientWallet } from '../client_wallet/client_wallet.entity';
 import { PaymentsModule } from '../../payments/payments.module';
+import { ProWalletModule } from '../../providers/pro_wallet/pro_wallet.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Bookings, Transaction, Services, Shops, ClientWallet, Users]),
+    TypeOrmModule.forFeature([Bookings, Transaction, Services, Shops, ClientWallet, Users, Worker]),
     PaymentsModule,
+    ProWalletModule,
   ],
   controllers: [BookingsController],
   providers: [BookingsService, BookingCheckoutService],

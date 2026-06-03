@@ -73,7 +73,19 @@ export class ShopsService {
   } 
 
   // ✅ Compute effective status from working hours (UTC = local for Togo/Bénin)
+  // Rules:
+  //   - If provider manually set 'occupé' or 'free', always respect it.
+  //   - If provider manually set 'closed', always respect it.
+  //   - If status is 'ouvert'/'open' (default), auto-close outside working hours.
   private _computeEffectiveStatus(shop: Shops): string {
+    const manualStatus = (shop.status || 'ouvert').toLowerCase().trim();
+
+    // Provider explicitly set a non-default status → respect it
+    if (manualStatus === 'occupé' || manualStatus === 'free' || manualStatus === 'closed') {
+      return shop.status;
+    }
+
+    // From here, status is 'ouvert' or 'open' → check working hours
     const now = new Date();
     const dayNames = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
     const todayName = dayNames[now.getUTCDay()];

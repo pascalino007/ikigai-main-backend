@@ -28,6 +28,7 @@ import { EnrollersModule } from './enrollers/enrollers.module';
 import { PermissionsModule } from './general/permissions/permissions.module';
 import { ProOwnners } from './providers/pro_ownners/pro_ownners.entity';
 import { ProOwnnersModule } from './providers/pro_ownners/pro_ownners.module';
+import { ProWalletModule } from './providers/pro_wallet/pro_wallet.module';
 import { SousCategories } from './admin/sous-category/sous-category.entity';
 import { SousCategoryModule } from './admin/sous-category/sous-category.module';
 import { UploadModule } from './upload/upload.module';
@@ -47,6 +48,9 @@ import { WorkersModule } from './workers/workers.module';
 import { Worker } from './workers/entities/worker.entity';
 import { WorkerSchedule } from './workers/entities/worker-schedule.entity';
 import { WorkerException } from './workers/entities/worker-exception.entity';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { Subscription } from './subscriptions/subscription.entity';
+import { ProWallet } from './providers/pro_wallet/pro_wallet.entity';
 
 @Module({
   imports: [
@@ -80,6 +84,8 @@ import { WorkerException } from './workers/entities/worker-exception.entity';
         Worker,
         WorkerSchedule,
         WorkerException,
+        Subscription,
+        ProWallet,
       ],
       synchronize: true,
     }),
@@ -90,6 +96,7 @@ import { WorkerException } from './workers/entities/worker-exception.entity';
     ServicesModule,
     BookingsModule,
     ClientWalletModule,
+    ProWalletModule,
     TransactionModule,
     CartModule,
     SlidersModule,
@@ -106,6 +113,7 @@ import { WorkerException } from './workers/entities/worker-exception.entity';
     ReviewsModule,
     MailModule,
     WorkersModule,
+    SubscriptionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
