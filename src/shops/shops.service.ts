@@ -77,7 +77,7 @@ export class ShopsService {
   //   - If provider manually set 'occupé' or 'free', always respect it.
   //   - If provider manually set 'closed', always respect it.
   //   - If status is 'ouvert'/'open' (default), auto-close outside working hours.
-  private _computeEffectiveStatus(shop: Shops): string {
+  computeEffectiveStatus(shop: Shops): string {
     const manualStatus = (shop.status || 'ouvert').toLowerCase().trim();
 
     // Provider explicitly set a non-default status → respect it
@@ -133,7 +133,7 @@ export class ShopsService {
       shops = await this.shopsRepository.find();
     }
     for (const shop of shops) {
-      shop.status = this._computeEffectiveStatus(shop) as any;
+      shop.status = this.computeEffectiveStatus(shop) as any;
     }
     return shops;
   }
@@ -173,7 +173,7 @@ export class ShopsService {
   async findOne(id: number): Promise<Shops> {
     const shop = await this.shopsRepository.findOne({ where: { id } });
     if (!shop) throw new NotFoundException(`Shop with ID ${id} not found`);
-    shop.status = this._computeEffectiveStatus(shop) as any;
+    shop.status = this.computeEffectiveStatus(shop) as any;
     return shop;
   }
 

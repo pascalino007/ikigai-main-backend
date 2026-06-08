@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -51,6 +52,7 @@ import { WorkerException } from './workers/entities/worker-exception.entity';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { Subscription } from './subscriptions/subscription.entity';
 import { ProWallet } from './providers/pro_wallet/pro_wallet.entity';
+import { ShopSchedulerModule } from './scheduler/shop-scheduler.module';
 
 @Module({
   imports: [
@@ -114,6 +116,8 @@ import { ProWallet } from './providers/pro_wallet/pro_wallet.entity';
     MailModule,
     WorkersModule,
     SubscriptionsModule,
+    ScheduleModule.forRoot(),
+    ShopSchedulerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

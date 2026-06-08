@@ -81,6 +81,9 @@ export class Shops {
   @Column({ type: 'enum', enum: ['open', 'ouvert', 'occupé', 'free', 'closed'], default: 'ouvert' })
   status: ShopStatus;
 
+  @Column({ type: 'varchar', length: 20, nullable: true, default: null })
+  auto_status: string | null;
+
   @Column({ default: true })
   is_active: boolean;
 

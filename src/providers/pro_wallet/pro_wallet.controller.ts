@@ -10,6 +10,19 @@ export class ProWalletController {
     return this.service.getSummary(shopId);
   }
 
+  @Get('shop/:shopId/transactions')
+  transactions(@Param('shopId', ParseIntPipe) shopId: number) {
+    return this.service.getTransactions(shopId);
+  }
+
+  @Post('shop/:shopId/withdraw')
+  withdraw(
+    @Param('shopId', ParseIntPipe) shopId: number,
+    @Body() body: { amount: number; phone?: string },
+  ) {
+    return this.service.requestWithdrawal(shopId, body.amount, body.phone);
+  }
+
   @Post('shop/:shopId/credit')
   credit(
     @Param('shopId', ParseIntPipe) shopId: number,
