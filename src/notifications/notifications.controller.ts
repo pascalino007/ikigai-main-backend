@@ -9,12 +9,20 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Notification } from './notification.entity';
+import { Users } from '../users/user.entity';
+import { Shops } from '../shops/shop.entity';
+import { NotificationsService } from './notifications.service';
 
 @Controller('notifications')
 export class NotificationsController {
   constructor(
     @InjectRepository(Notification)
     private readonly notificationRepo: Repository<Notification>,
+    @InjectRepository(Users)
+    private readonly usersRepo: Repository<Users>,
+    @InjectRepository(Shops)
+    private readonly shopsRepo: Repository<Shops>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /** Get all notifications for a user, newest first. */
@@ -51,5 +59,47 @@ export class NotificationsController {
       { is_read: true },
     );
     return { affected: result.affected ?? 0 };
+  }
+
+  /** Broadcast push notification to clients, providers, or both. */
+  @Post('broadcast')
+  async broadcast(
+    @Body() body: { target: 'clients' | 'providers' | 'both'; title: string; message: string },
+  ): Promise<{ sent: number; failed: number }> {
+    const { target, title, message } = body;
+    const tokens: string[] = [];
+
+    if (target === 'clients' || target === 'both') {
+      const users = await this.usersRepo.find({
+        where: { role: 'client' },
+        select: ['fcm_token'],
+      });
+      tokens.push(...users.map((u) => u.fcm_token).filter((t): t is string => !!t));
+    }
+
+    if (target === 'providers' || target === 'both') {
+      const shops = await this.shopsRepo.find({
+        select: ['fcm_token'],
+      });
+      tokens.push(...shops.map((s) => s.fcm_token).filter((t): t is string => !!t));
+    }
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const token of tokens) {
+      try {
+        await this.notificationsService.sendPushNotification({
+          token,
+          title,
+          body: message,
+        });
+        sent++;
+      } catch (_) {
+        failed++;
+      }
+    }
+
+    return { sent, failed };
   }
 }
