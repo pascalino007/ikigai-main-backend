@@ -126,4 +126,13 @@ async resetPassword(
 ) {
   return this.usersService.resetPassword(id, newPassword);
 }
+
+  // ✅ Update FCM token for push notifications (client app)
+  @Post(':id/fcm-token')
+  async updateFcmToken(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('fcmToken') fcmToken: string,
+  ): Promise<Users> {
+    return await this.usersService.updateFcmToken(id, fcmToken);
+  }
 }

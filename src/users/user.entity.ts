@@ -45,4 +45,7 @@ export class Users {
     @Column({ type: 'int', nullable: true })
     superior_id: number | null;
 
+    @Column({ type: 'text', nullable: true })
+    fcm_token: string | null;
+
 }

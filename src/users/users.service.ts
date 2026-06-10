@@ -202,6 +202,13 @@ export class UsersService {
     return { success: true, message: 'Password updated successfully' };
   }
 
+  async updateFcmToken(id: number, fcmToken: string): Promise<Users> {
+    const user = await this.usersRepository.findOne({ where: { id } });
+    if (!user) throw new NotFoundException(`User with ID ${id} not found`);
+    user.fcm_token = fcmToken;
+    return await this.usersRepository.save(user);
+  }
+
   async resetPassword(userId: number, newPassword: string): Promise<string> {
   const user = await this.usersRepository.findOne({ where: { id: userId } });
   if (!user) throw new NotFoundException("User not found");
