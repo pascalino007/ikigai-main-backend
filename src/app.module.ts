@@ -68,7 +68,7 @@ import { Notification } from './notifications/notification.entity';
       port: 3306,
       database: 'ikigaidb',
       username: 'root',
-      password: 'password',
+      password: 'kabadelivery',
       entities: [
         Users,
         Shops,
