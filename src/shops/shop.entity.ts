@@ -11,8 +11,8 @@ export class Shops {
   @Column()
   name: string;
 
-  @Column()
-  category: string;
+  @Column({ nullable: true })
+  category: string | null;
 
   @Column()
   type: string;
@@ -92,5 +92,8 @@ export class Shops {
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   createdAt: Date;
+
+  @Column({ type: 'text', nullable: true })
+  fcm_token: string | null;
 
 }

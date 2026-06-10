@@ -19,6 +19,12 @@ export class CommandesController {
     return this.commandesService.findAll();
   }
 
+  /** GET /commandes/user/:userId — list orders for a specific user */
+  @Get('user/:userId')
+  findByUser(@Param('userId', ParseIntPipe) userId: number) {
+    return this.commandesService.findByUser(userId);
+  }
+
   /** GET /commandes/:id */
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {

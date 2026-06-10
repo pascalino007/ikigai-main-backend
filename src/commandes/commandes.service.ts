@@ -25,6 +25,13 @@ export class CommandesService {
     return this.commandeRepo.find({ order: { createdAt: 'DESC' } });
   }
 
+  async findByUser(userId: number): Promise<Commande[]> {
+    return this.commandeRepo.find({
+      where: { user_id: userId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   async findOne(id: number): Promise<Commande> {
     const commande = await this.commandeRepo.findOne({ where: { id } });
     if (!commande) throw new NotFoundException(`Commande #${id} not found`);

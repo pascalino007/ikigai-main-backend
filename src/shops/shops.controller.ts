@@ -68,6 +68,15 @@ async update(
 }
 
 
+  // ✅ Update FCM token for push notifications
+  @Post(':id/fcm-token')
+  async updateFcmToken(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('fcmToken') fcmToken: string,
+  ): Promise<Shops> {
+    return await this.shopsService.updateFcmToken(id, fcmToken);
+  }
+
   // ✅ Delete a shop by ID
   @Delete(':id')
   async remove(@Param('id', ParseIntPipe) id: number): Promise<{ message: string }> {

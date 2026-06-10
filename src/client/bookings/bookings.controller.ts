@@ -98,4 +98,13 @@ export class BookingsController {
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.bookingService.findOne(id);
   }
+
+  /** Provider cancels a booking */
+  @Post(':id/cancel')
+  cancel(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('provider_id', ParseIntPipe) providerId: number,
+  ) {
+    return this.bookingService.cancel(id, providerId);
+  }
 }

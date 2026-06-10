@@ -323,4 +323,30 @@ export class BookingsService {
 
     return this.enrichBooking(booking);
   }
+
+  // ── Provider cancels a booking ──
+
+  async cancel(id: number, providerId: number) {
+    const booking = await this.bookingRepo.findOne({
+      where: { id },
+      relations: { transaction: true },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (booking.provider_id !== providerId) {
+      throw new BadRequestException('This booking does not belong to your shop');
+    }
+    if (
+      booking.booking_status !== BookingStatus.CONFIRMED &&
+      booking.booking_status !== BookingStatus.PENDING_PAYMENT &&
+      booking.booking_status !== BookingStatus.NO_SHOW
+    ) {
+      throw new BadRequestException(
+        'Only confirmed, pending or no-show bookings can be cancelled',
+      );
+    }
+
+    booking.booking_status = BookingStatus.CANCELLED;
+    await this.bookingRepo.save(booking);
+    return this.enrichBooking(booking);
+  }
 }

@@ -20,6 +20,8 @@ import { parseServicePriceToAmount } from './service-price.util';
 import { TransactionMotif, TransactionStatus } from '../../transaction/transaction.contants';
 import { StripeService } from '../../payments/stripe.service';
 import { KkiapayService } from '../../payments/kkiapay.service';
+import { NotificationsService } from '../../notifications/notifications.service';
+import { Shops } from '../../shops/shop.entity';
 import * as crypto from 'crypto';
 
 export interface BookingCheckoutResult {
@@ -61,11 +63,30 @@ export class BookingCheckoutService {
     private readonly servicesRepo: Repository<Services>,
     @InjectRepository(ClientWallet)
     private readonly walletRepo: Repository<ClientWallet>,
+    @InjectRepository(Shops)
+    private readonly shopsRepo: Repository<Shops>,
     private readonly dataSource: DataSource,
     private readonly config: ConfigService,
     private readonly stripeService: StripeService,
     private readonly kkiapayService: KkiapayService,
+    private readonly notificationsService: NotificationsService,
   ) {}
+
+  private async notifyProviderOfBooking(providerId: number, serviceName: string, bookingDate: string, bookingTime?: string) {
+    const shop = await this.shopsRepo.findOne({ where: { id: providerId } });
+    if (shop?.fcm_token) {
+      const timeStr = bookingTime ? ` à ${bookingTime}` : '';
+      await this.notificationsService.sendPushNotification({
+        token: shop.fcm_token,
+        title: 'Nouvelle réservation',
+        body: `${serviceName} · ${bookingDate}${timeStr}`,
+        data: {
+          type: 'new_booking',
+          providerId: String(providerId),
+        },
+      });
+    }
+  }
 
   async initiateCheckout(
     dto: InitiateBookingCheckoutDto,
@@ -93,7 +114,10 @@ export class BookingCheckoutService {
 
     // ── WALLET PAYMENT PATH ──
     if (dto.payment_provider === 'wallet') {
-      return this.checkoutWithWallet(dto, amount, currency, bookingEnd);
+      const result = await this.checkoutWithWallet(dto, amount, currency, bookingEnd);
+      const bookingDate = dto.booking_date.slice(0, 10);
+      await this.notifyProviderOfBooking(dto.provider_id, service.name, bookingDate, dto.booking_time);
+      return result;
     }
 
     // ── EXTERNAL PAYMENT PATH (Stripe / Kkiapay / sandbox) ──
@@ -398,13 +422,18 @@ export class BookingCheckoutService {
       .toString('hex')}`;
 
     if (dto.payment_provider === 'wallet') {
-      return this.bulkCheckoutWithWallet(
+      const result = await this.bulkCheckoutWithWallet(
         dto,
         resolved,
         totalAmount,
         currency,
         bulkRef,
       );
+      for (const r of resolved) {
+        const bookingDate = r.item.booking_date.slice(0, 10);
+        await this.notifyProviderOfBooking(r.item.provider_id, r.service.name, bookingDate, r.item.booking_time);
+      }
+      return result;
     }
 
     return this.bulkCheckoutWithExternalProvider(

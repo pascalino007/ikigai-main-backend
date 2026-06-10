@@ -53,6 +53,9 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { Subscription } from './subscriptions/subscription.entity';
 import { ProWallet } from './providers/pro_wallet/pro_wallet.entity';
 import { ShopSchedulerModule } from './scheduler/shop-scheduler.module';
+import { BookingSchedulerModule } from './scheduler/booking-scheduler.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { Notification } from './notifications/notification.entity';
 
 @Module({
   imports: [
@@ -88,6 +91,7 @@ import { ShopSchedulerModule } from './scheduler/shop-scheduler.module';
         WorkerException,
         Subscription,
         ProWallet,
+        Notification,
       ],
       synchronize: true,
     }),
@@ -118,6 +122,8 @@ import { ShopSchedulerModule } from './scheduler/shop-scheduler.module';
     SubscriptionsModule,
     ScheduleModule.forRoot(),
     ShopSchedulerModule,
+    BookingSchedulerModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

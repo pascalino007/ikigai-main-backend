@@ -4,7 +4,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import { Transaction } from '../transaction/transaction.entity';
 import { Bookings } from '../client/bookings/bookings.entity';
@@ -15,12 +16,30 @@ import {
   NormalizedPaymentEvent,
   normalizePaymentWebhook,
 } from './payment-webhook.adapters';
+import { NotificationsService } from '../notifications/notifications.service';
+import { MailService } from '../mail/mail.service';
+import { Shops } from '../shops/shop.entity';
+import { Services } from '../services/services.entity';
+import { Users } from '../users/user.entity';
+import { Notification } from '../notifications/notification.entity';
 
 @Injectable()
 export class PaymentWebhookService {
   private readonly logger = new Logger(PaymentWebhookService.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    @InjectRepository(Shops)
+    private readonly shopsRepo: Repository<Shops>,
+    @InjectRepository(Services)
+    private readonly servicesRepo: Repository<Services>,
+    @InjectRepository(Users)
+    private readonly usersRepo: Repository<Users>,
+    @InjectRepository(Notification)
+    private readonly notificationRepo: Repository<Notification>,
+    private readonly notificationsService: NotificationsService,
+    private readonly mailService: MailService,
+  ) {}
 
   parseAndNormalize(provider: string, body: unknown): NormalizedPaymentEvent {
     return normalizePaymentWebhook(provider, body);
@@ -126,6 +145,9 @@ export class PaymentWebhookService {
       this.logger.log(
         `Deposit ${txn.transactionRef} succeeded – wallet ${wallet.client_id} credited ${txn.amount} XOF (new balance: ${wallet.balance})`,
       );
+
+      // ── Send email + in-app notification to user ──
+      await this.notifyUserOfDeposit(txn.toUserId, txn.amount, wallet.balance);
       return;
     }
 
@@ -141,6 +163,69 @@ export class PaymentWebhookService {
         txn.externalPaymentId = event.externalPaymentId;
       }
       await manager.save(Transaction, txn);
+    }
+  }
+
+  /** Email + in-app notification when a user's deposit succeeds. */
+  private async notifyUserOfDeposit(
+    userId: number,
+    amount: number,
+    newBalance: number,
+  ): Promise<void> {
+    try {
+      const user = await this.usersRepo.findOne({ where: { id: userId } });
+      if (!user) return;
+
+      // 1. In-app notification
+      await this.notificationRepo.save({
+        user_id: userId,
+        type: 'deposit',
+        title: 'Dépôt reçu !',
+        body: `${amount.toLocaleString('fr-FR')} FCFA ont été ajoutés à votre portefeuille. Nouveau solde : ${newBalance.toLocaleString('fr-FR')} FCFA.`,
+        is_read: false,
+      });
+
+      // 2. Email
+      await this.mailService.sendMail({
+        to: user.email,
+        subject: 'Dépôt confirmé – Ikigai',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; color: #333;">
+            <h2 style="color: #002D39;">Bonjour ${user.firstname},</h2>
+            <p>Votre portefeuille Ikigai a été crédité avec succès.</p>
+            <div style="background: #f5f6fa; border-radius: 12px; padding: 20px; margin: 20px 0;">
+              <p style="margin: 0; font-size: 14px; color: #666;">Montant du dépôt</p>
+              <p style="margin: 8px 0 0 0; font-size: 22px; font-weight: bold; color: #002D39;">
+                ${amount.toLocaleString('fr-FR')} FCFA
+              </p>
+              <hr style="border: none; border-top: 1px solid #ddd; margin: 16px 0;" />
+              <p style="margin: 0; font-size: 14px; color: #666;">Nouveau solde</p>
+              <p style="margin: 8px 0 0 0; font-size: 18px; font-weight: bold; color: #10B981;">
+                ${newBalance.toLocaleString('fr-FR')} FCFA
+              </p>
+            </div>
+            <p style="font-size: 13px; color: #888;">Merci de faire confiance à Ikigai.</p>
+          </div>
+        `,
+      });
+    } catch (e) {
+      this.logger.error(`Failed to notify user ${userId} of deposit: ${e.message}`);
+    }
+  }
+
+  private async notifyProviderOfBooking(providerId: number, serviceName: string, bookingDate: string, bookingTime?: string) {
+    const shop = await this.shopsRepo.findOne({ where: { id: providerId } });
+    if (shop?.fcm_token) {
+      const timeStr = bookingTime ? ` à ${bookingTime}` : '';
+      await this.notificationsService.sendPushNotification({
+        token: shop.fcm_token,
+        title: 'Nouvelle réservation',
+        body: `${serviceName} · ${bookingDate}${timeStr}`,
+        data: {
+          type: 'new_booking',
+          providerId: String(providerId),
+        },
+      });
     }
   }
 
@@ -173,6 +258,17 @@ export class PaymentWebhookService {
       txn.booking.payement_status = 1;
       txn.booking.qr_checkin_token = crypto.randomUUID().replace(/-/g, '');
       await manager.save(Bookings, txn.booking);
+
+      const service = await this.servicesRepo.findOne({ where: { id: txn.booking.service_id } });
+      const timeStr = txn.booking.booking_time
+        ? txn.booking.booking_time.toISOString().slice(11, 16)
+        : undefined;
+      await this.notifyProviderOfBooking(
+        txn.booking.provider_id,
+        service?.name ?? 'Service',
+        txn.booking.booking_date ?? '',
+        timeStr,
+      );
       return;
     }
 

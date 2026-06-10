@@ -177,6 +177,14 @@ export class ShopsService {
     return shop;
   }
 
+  // ✅ Update FCM token for push notifications
+  async updateFcmToken(id: number, fcmToken: string): Promise<Shops> {
+    const shop = await this.shopsRepository.findOne({ where: { id } });
+    if (!shop) throw new NotFoundException(`Shop with ID ${id} not found`);
+    shop.fcm_token = fcmToken;
+    return await this.shopsRepository.save(shop);
+  }
+
   // ✅ (Optional) Delete shop
   async remove(id: number): Promise<void> {
     const result = await this.shopsRepository.delete(id);

@@ -5,8 +5,9 @@ export class CreateShopDto {
   @IsString()
   name: string;
 
+  @IsOptional()
   @IsString()
-  category: string;
+  category?: string;
 
   @IsString()
   type: string;
