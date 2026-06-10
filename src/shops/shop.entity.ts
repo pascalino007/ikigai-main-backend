@@ -75,10 +75,10 @@ export class Shops {
   @Column()
   registered_by: string;
 
-  @Column({ type: 'enum', enum: ['basic', 'pro', 'elite'], default: 'basic' })
+  @Column({ type: 'varchar', length: 20, default: 'basic' })
   grade: ShopGrade;
 
-  @Column({ type: 'enum', enum: ['open', 'ouvert', 'occupé', 'free', 'closed'], default: 'ouvert' })
+  @Column({ type: 'varchar', length: 20, default: 'ouvert' })
   status: ShopStatus;
 
   @Column({ type: 'varchar', length: 20, nullable: true, default: null })
