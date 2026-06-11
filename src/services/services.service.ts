@@ -66,12 +66,17 @@ export class ServicesService {
       items = await this.servicesRepository.find({
         where: [{ Category: category }, { Category: categoryName }],
       });
+      // Fallback: if strict filter yields nothing, return all services for the grade
+      if (items.length === 0) {
+        items = await this.servicesRepository.find();
+      }
     } else {
       items = await this.servicesRepository.find();
     }
     const enriched = await this.enrich(items);
     if (shopGrade) {
-      return enriched.filter(s => s.shop_grade === shopGrade);
+      const target = shopGrade.toLowerCase();
+      return enriched.filter(s => (s.shop_grade ?? 'basic').toLowerCase() === target);
     }
     return enriched;
   }
