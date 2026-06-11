@@ -13,6 +13,7 @@ import { BookingCheckoutService } from './booking-checkout.service';
 import { InitiateBookingCheckoutDto } from './dtos/initiate-booking-checkout.dto';
 import { BulkBookingCheckoutDto } from './dtos/bulk-booking-checkout.dto';
 import { UserHistoryDto } from './dtos/userhistory.dto';
+import { FindBookingsDto } from './dtos/find-bookings.dto';
 
 @Controller('bookings')
 export class BookingsController {
@@ -83,15 +84,19 @@ export class BookingsController {
   }
 
   @Get()
-  findAll() {
-    return this.bookingService.findAll();
+  findAll(@Query() query: FindBookingsDto) {
+    return this.bookingService.findAll(query);
   }
 
   @Get('provider/:provider_id')
   providerBookings(
     @Param('provider_id', ParseIntPipe) provider_id: number,
+    @Query() query: FindBookingsDto,
   ) {
-    return this.bookingService.findByProvider(provider_id);
+    return this.bookingService.findByProvider(
+      provider_id,
+      query,
+    );
   }
 
   @Get(':id')

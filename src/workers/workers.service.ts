@@ -6,6 +6,9 @@ import { WorkerSchedule } from './entities/worker-schedule.entity';
 import { WorkerException } from './entities/worker-exception.entity';
 import { Bookings } from '../client/bookings/bookings.entity';
 import { Services } from '../services/services.entity';
+import { Shops } from '../shops/shop.entity';
+import { Users } from '../users/user.entity';
+import { ProOwnners } from '../providers/pro_ownners/pro_ownners.entity';
 import {
   CreateWorkerDto,
   UpdateWorkerDto,
@@ -32,6 +35,12 @@ export class WorkersService {
     private readonly bookingsRepo: Repository<Bookings>,
     @InjectRepository(Services)
     private readonly servicesRepo: Repository<Services>,
+    @InjectRepository(Shops)
+    private readonly shopsRepo: Repository<Shops>,
+    @InjectRepository(Users)
+    private readonly usersRepo: Repository<Users>,
+    @InjectRepository(ProOwnners)
+    private readonly proOwnersRepo: Repository<ProOwnners>,
   ) {}
 
   // ─── CRUD ──────────────────────────────────────────────────────────────
@@ -70,10 +79,58 @@ export class WorkersService {
   }
 
   async findByShop(shopId: number): Promise<Worker[]> {
-    return this.workerRepo.find({
+    const workers = await this.workerRepo.find({
       where: { shop_id: shopId, is_active: true },
       relations: ['schedules', 'exceptions'],
     });
+    if (workers.length > 0) return workers;
+
+    // No workers → create a default "shop owner" worker
+    const defaultWorker = await this._createDefaultWorker(shopId);
+    return defaultWorker ? [defaultWorker] : [];
+  }
+
+  private async _createDefaultWorker(shopId: number): Promise<Worker | null> {
+    const shop = await this.shopsRepo.findOne({ where: { id: shopId } });
+    if (!shop) return null;
+
+    let firstName = 'Propriétaire';
+    let lastName = '';
+
+    // 1st priority: ProOwner linked by shop.owner email
+    if (shop.owner) {
+      const proOwner = await this.proOwnersRepo.findOne({
+        where: { email: shop.owner },
+      });
+      if (proOwner) {
+        firstName = proOwner.firstname;
+        lastName = proOwner.lastname;
+      }
+    }
+
+    // 2nd priority: user linked via shop.user_id
+    if (firstName === 'Propriétaire' && shop.user_id) {
+      const user = await this.usersRepo.findOne({ where: { id: shop.user_id } });
+      if (user) {
+        firstName = user.firstname;
+        lastName = user.lastname;
+      }
+    }
+
+    const worker = this.workerRepo.create({
+      id: -shopId, // sentinel: negative shopId means default owner worker
+      shop_id: shopId,
+      first_name: firstName,
+      last_name: lastName,
+      phone: '123456789',
+      email: shop.email,
+      buffer_minutes: 5,
+      is_active: true,
+    });
+    // Attach empty relations so downstream code doesn't crash
+    (worker as any).schedules = [];
+    (worker as any).exceptions = [];
+    return worker;
   }
 
   async findOne(id: number): Promise<Worker> {
@@ -160,7 +217,17 @@ export class WorkersService {
     date: string, // YYYY-MM-DD
     serviceId: number,
   ): Promise<TimeSlot[]> {
-    const worker = await this.findOne(workerId);
+    let worker: Worker;
+    if (workerId < 0) {
+      // Default owner worker (sentinel)
+      const shopId = -workerId;
+      const defaultWorker = await this._createDefaultWorker(shopId);
+      if (!defaultWorker) throw new NotFoundException(`Shop #${shopId} not found`);
+      worker = defaultWorker;
+    } else {
+      worker = await this.findOne(workerId);
+    }
+
     const service = await this.servicesRepo.findOne({ where: { id: serviceId } });
     if (!service) throw new NotFoundException(`Service #${serviceId} not found`);
 
@@ -168,8 +235,11 @@ export class WorkersService {
     const bufferMinutes = worker.buffer_minutes || 5;
 
     // 1. Get working hours for this date
-    const workingHours = this.getWorkingHours(worker, date);
-    if (!workingHours) return []; // day off
+    const workingHours = await this.getWorkingHours(worker, date);
+    if (!workingHours) {
+      console.log(`[getAvailability] worker=${workerId} date=${date} -> day off`);
+      return []; // day off
+    }
 
     // 2. Get existing bookings for this worker on this date
     const existingBookings = await this.getWorkerBookingsForDate(workerId, date);
@@ -181,6 +251,14 @@ export class WorkersService {
       durationMinutes,
       bufferMinutes,
       existingBookings,
+    );
+
+    const lastSlot = slots.length > 0 ? slots[slots.length - 1] : null;
+    console.log(
+      `[getAvailability] worker=${workerId} date=${date} service=${serviceId} ` +
+      `hours=${workingHours.start}-${workingHours.end} duration=${durationMinutes}min ` +
+      `buffer=${bufferMinutes}min bookings=${existingBookings.length} ` +
+      `slots=${slots.length} lastSlot=${lastSlot ? lastSlot.start + '-' + lastSlot.end : 'none'}`,
     );
 
     return slots;
@@ -200,8 +278,17 @@ export class WorkersService {
 
     for (const worker of workers) {
       const slots = await this.getAvailability(worker.id, date, serviceId);
-      if (slots.some((s) => s.available)) {
-        results.push({ worker, slots: slots.filter((s) => s.available) });
+      const availableSlots = slots.filter((s) => s.available);
+      if (availableSlots.length > 0) {
+        results.push({ worker, slots: availableSlots });
+      }
+    }
+
+    // If no workers had available slots, still return the default owner with empty slots
+    if (results.length === 0 && workers.length > 0) {
+      const defaultWorker = workers.find((w) => w.id < 0);
+      if (defaultWorker) {
+        results.push({ worker: defaultWorker, slots: [] });
       }
     }
 
@@ -210,10 +297,47 @@ export class WorkersService {
 
   // ─── PRIVATE HELPERS ──────────────────────────────────────────────────
 
-  private getWorkingHours(
+  private _timeToMinutes(time: string): number {
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
+  }
+
+  private _minutesToTime(minutes: number): string {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
+  private _parseShopHours(
+    shop: Shops | null,
+    dayOfWeek: number,
+  ): { start: string; end: string } | null {
+    if (!shop?.workingHours || !Array.isArray(shop.workingHours)) return null;
+    const dayNames = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+    const todayName = dayNames[dayOfWeek];
+    const entry = shop.workingHours.find(
+      (wh) => wh && wh.length >= 2 && wh[0].toLowerCase() === todayName.toLowerCase(),
+    );
+    if (!entry) return null;
+    const hoursStr = entry[1].trim();
+    if (hoursStr.toLowerCase() === 'fermé' || hoursStr === '-') return null;
+    const timeMatch = hoursStr.match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
+    if (!timeMatch) return null;
+    const [, openH, openM, closeH, closeM] = timeMatch.map(Number);
+    return {
+      start: `${String(openH).padStart(2, '0')}:${String(openM).padStart(2, '0')}`,
+      end: `${String(closeH).padStart(2, '0')}:${String(closeM).padStart(2, '0')}`,
+    };
+  }
+
+  private async getWorkingHours(
     worker: Worker,
     date: string,
-  ): { start: string; end: string } | null {
+  ): Promise<{ start: string; end: string } | null> {
+    const dayOfWeek = new Date(date).getDay(); // 0=Sun
+    const shop = await this.shopsRepo.findOne({ where: { id: worker.shop_id } });
+    const shopHours = this._parseShopHours(shop, dayOfWeek);
+
     // Check exceptions first
     const exception = worker.exceptions?.find(
       (e) => e.exception_date === date,
@@ -222,18 +346,53 @@ export class WorkersService {
     if (exception) {
       if (exception.type === 'day_off') return null;
       if (exception.type === 'custom_hours' && exception.start_time && exception.end_time) {
-        return { start: exception.start_time, end: exception.end_time };
+        if (!shopHours) return { start: exception.start_time, end: exception.end_time };
+        const clamped = this._clampHours(
+          { start: exception.start_time, end: exception.end_time },
+          shopHours,
+        );
+        return clamped;
       }
     }
 
     // Fall back to weekly schedule
-    const dayOfWeek = new Date(date).getDay(); // 0=Sun
     const schedule = worker.schedules?.find(
       (s) => s.day_of_week === dayOfWeek && s.is_active,
     );
 
-    if (!schedule) return null;
-    return { start: schedule.start_time, end: schedule.end_time };
+    if (schedule) {
+      if (!shopHours) return { start: schedule.start_time, end: schedule.end_time };
+      const clamped = this._clampHours(
+        { start: schedule.start_time, end: schedule.end_time },
+        shopHours,
+      );
+      return clamped;
+    }
+
+    // Final fallback: shop's working hours
+    return shopHours;
+  }
+
+  private _clampHours(
+    workerHours: { start: string; end: string },
+    shopHours: { start: string; end: string },
+  ): { start: string; end: string } | null {
+    const wStart = this._timeToMinutes(workerHours.start);
+    const wEnd = this._timeToMinutes(workerHours.end);
+    const sStart = this._timeToMinutes(shopHours.start);
+    const sEnd = this._timeToMinutes(shopHours.end);
+
+    const effectiveStart = Math.max(wStart, sStart);
+    const effectiveEnd = Math.min(wEnd, sEnd);
+
+    if (effectiveStart >= effectiveEnd) {
+      return null; // No valid overlap
+    }
+
+    return {
+      start: this._minutesToTime(effectiveStart),
+      end: this._minutesToTime(effectiveEnd),
+    };
   }
 
   private async getWorkerBookingsForDate(

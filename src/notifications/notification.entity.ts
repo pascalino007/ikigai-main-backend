@@ -24,6 +24,9 @@ export class Notification {
   @Column({ type: 'text' })
   body: string;
 
+  @Column({ type: 'text', nullable: true })
+  image_url: string | null;
+
   @Column({ default: false })
   is_read: boolean;
 

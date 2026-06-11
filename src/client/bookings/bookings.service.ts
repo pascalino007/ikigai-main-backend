@@ -266,18 +266,49 @@ export class BookingsService {
     return this.enrichBookings(bookings);
   }
 
-  async findAll() {
-    const bookings = await this.bookingRepo.find({
+  async findAll(query: { page?: number; limit?: number; startDate?: string; endDate?: string }) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (query.startDate && query.endDate) {
+      where.booking_date = Between(query.startDate, query.endDate);
+    }
+
+    const [bookings, total] = await this.bookingRepo.findAndCount({
+      where,
+      order: { booking_date: 'DESC', booking_time: 'DESC' },
       relations: { transaction: true },
+      skip,
+      take: limit,
     });
-    return this.enrichBookings(bookings);
+
+    return {
+      data: await this.enrichBookings(bookings),
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
   }
 
-  async findByProvider(provider_id: number) {
-    const bookings = await this.bookingRepo.find({
-      where: { provider_id },
-      order: { booking_date: 'DESC' },
+  async findByProvider(
+    provider_id: number,
+    query: { page?: number; limit?: number; startDate?: string; endDate?: string },
+  ) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const where: any = { provider_id };
+    if (query.startDate && query.endDate) {
+      where.booking_date = Between(query.startDate, query.endDate);
+    }
+
+    const [bookings, total] = await this.bookingRepo.findAndCount({
+      where,
+      order: { booking_date: 'DESC', booking_time: 'DESC' },
       relations: { transaction: true },
+      skip,
+      take: limit,
     });
 
     const now = new Date();
@@ -299,7 +330,10 @@ export class BookingsService {
       await this.bookingRepo.save(toUpdate);
     }
 
-    return this.enrichBookings(bookings);
+    return {
+      data: await this.enrichBookings(bookings),
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   async findOne(id: number) {

@@ -22,6 +22,7 @@ import { StripeService } from '../../payments/stripe.service';
 import { KkiapayService } from '../../payments/kkiapay.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { Shops } from '../../shops/shop.entity';
+import { Users } from '../../users/user.entity';
 import * as crypto from 'crypto';
 
 export interface BookingCheckoutResult {
@@ -65,6 +66,8 @@ export class BookingCheckoutService {
     private readonly walletRepo: Repository<ClientWallet>,
     @InjectRepository(Shops)
     private readonly shopsRepo: Repository<Shops>,
+    @InjectRepository(Users)
+    private readonly usersRepo: Repository<Users>,
     private readonly dataSource: DataSource,
     private readonly config: ConfigService,
     private readonly stripeService: StripeService,
@@ -83,6 +86,22 @@ export class BookingCheckoutService {
         data: {
           type: 'new_booking',
           providerId: String(providerId),
+        },
+      });
+    }
+  }
+
+  private async notifyClientOfBooking(userId: number, serviceName: string, shopName: string, bookingDate: string, bookingTime?: string) {
+    const user = await this.usersRepo.findOne({ where: { id: userId } });
+    if (user?.fcm_token) {
+      const timeStr = bookingTime ? ` à ${bookingTime}` : '';
+      await this.notificationsService.sendPushNotification({
+        token: user.fcm_token,
+        title: 'Réservation confirmée',
+        body: `${serviceName} chez ${shopName} · ${bookingDate}${timeStr}`,
+        data: {
+          type: 'booking_confirmed',
+          userId: String(userId),
         },
       });
     }
@@ -117,6 +136,8 @@ export class BookingCheckoutService {
       const result = await this.checkoutWithWallet(dto, amount, currency, bookingEnd);
       const bookingDate = dto.booking_date.slice(0, 10);
       await this.notifyProviderOfBooking(dto.provider_id, service.name, bookingDate, dto.booking_time);
+      const shop = await this.shopsRepo.findOne({ where: { id: dto.provider_id } });
+      await this.notifyClientOfBooking(dto.user_id, service.name, shop?.name ?? 'votre salon', bookingDate, dto.booking_time);
       return result;
     }
 
@@ -432,6 +453,8 @@ export class BookingCheckoutService {
       for (const r of resolved) {
         const bookingDate = r.item.booking_date.slice(0, 10);
         await this.notifyProviderOfBooking(r.item.provider_id, r.service.name, bookingDate, r.item.booking_time);
+        const shop = await this.shopsRepo.findOne({ where: { id: r.item.provider_id } });
+        await this.notifyClientOfBooking(dto.user_id, r.service.name, shop?.name ?? 'votre salon', bookingDate, r.item.booking_time);
       }
       return result;
     }

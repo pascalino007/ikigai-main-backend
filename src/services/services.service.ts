@@ -60,7 +60,12 @@ export class ServicesService {
   async findAll(shopGrade?: string, category?: string): Promise<(Services & { categoryName: string; sousCategoryName: string })[]> {
     let items: Services[];
     if (category) {
-      items = await this.servicesRepository.find({ where: { Category: category } });
+      // Category param may be ID or name; look up both to match Services.Category
+      const cat = await this.categoriesRepository.findOne({ where: { id: Number(category) || 0 } });
+      const categoryName = cat?.name ?? category;
+      items = await this.servicesRepository.find({
+        where: [{ Category: category }, { Category: categoryName }],
+      });
     } else {
       items = await this.servicesRepository.find();
     }

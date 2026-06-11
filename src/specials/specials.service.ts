@@ -54,9 +54,17 @@ export class SpecialsService {
   async findAll(category?: string, shopGrade?: string, shopId?: string) {
     let specials: Special[];
     if (category) {
-      // Find services in this category, then specials for those services
-      const services = await this.servicesRepo.find({ where: { Category: category } });
-      const serviceIds = services.map(s => String(s.id));
+      // Category param may be ID or name; look up both to match Services.Category
+      const servicesById = await this.servicesRepo.find({ where: { Category: category } });
+      let servicesByName: Services[] = [];
+      try {
+        const cat = await this.servicesRepo.manager.findOne('categories', { where: { id: Number(category) || 0 } });
+        if (cat && (cat as any).name) {
+          servicesByName = await this.servicesRepo.find({ where: { Category: (cat as any).name } });
+        }
+      } catch (_) { /* ignore */ }
+      const allServices = [...servicesById, ...servicesByName];
+      const serviceIds = [...new Set(allServices.map(s => String(s.id)))];
       if (serviceIds.length === 0) return [];
       specials = await this.repo.find({
         where: { serviceId: In(serviceIds) },

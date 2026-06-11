@@ -88,7 +88,8 @@ export class ShopsService {
     // From here, status is 'ouvert' or 'open' → check working hours
     const now = new Date();
     const dayNames = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-    const todayName = dayNames[now.getUTCDay()];
+    // Use local time so it matches the server's timezone (should align with shop locale)
+    const todayName = dayNames[now.getDay()];
 
     if (!shop.workingHours || !Array.isArray(shop.workingHours) || shop.workingHours.length === 0) {
       return shop.status || 'ouvert';
@@ -98,8 +99,9 @@ export class ShopsService {
       (wh) => wh && wh.length >= 2 && wh[0].toLowerCase() === todayName.toLowerCase(),
     );
 
+    // No entry for today → assume open (provider didn't specify hours for this day)
     if (!todayEntry) {
-      return 'closed';
+      return shop.status || 'ouvert';
     }
 
     const hoursStr = todayEntry[1].trim();
@@ -115,7 +117,8 @@ export class ShopsService {
     const [, openH, openM, closeH, closeM] = timeMatch.map(Number);
     const openMinutes = openH * 60 + openM;
     const closeMinutes = closeH * 60 + closeM;
-    const currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+    // Use local hours so it matches the shop's timezone
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
     if (currentMinutes < openMinutes || currentMinutes >= closeMinutes) {
       return 'closed';

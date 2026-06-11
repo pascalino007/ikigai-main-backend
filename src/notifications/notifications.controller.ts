@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Body,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -15,6 +16,8 @@ import { NotificationsService } from './notifications.service';
 
 @Controller('notifications')
 export class NotificationsController {
+  private readonly logger = new Logger(NotificationsController.name);
+
   constructor(
     @InjectRepository(Notification)
     private readonly notificationRepo: Repository<Notification>,
@@ -64,9 +67,9 @@ export class NotificationsController {
   /** Broadcast push notification to clients, providers, or both. */
   @Post('broadcast')
   async broadcast(
-    @Body() body: { target: 'clients' | 'providers' | 'both'; title: string; message: string },
+    @Body() body: { target: 'clients' | 'providers' | 'both'; title: string; message: string; imageUrl?: string },
   ): Promise<{ sent: number; failed: number }> {
-    const { target, title, message } = body;
+    const { target, title, message, imageUrl } = body;
     const tokens: string[] = [];
 
     if (target === 'clients' || target === 'both') {
@@ -74,15 +77,21 @@ export class NotificationsController {
         where: { role: 'client' },
         select: ['fcm_token'],
       });
-      tokens.push(...users.map((u) => u.fcm_token).filter((t): t is string => !!t));
+      const clientTokens = users.map((u) => u.fcm_token).filter((t): t is string => !!t);
+      this.logger.log(`Broadcast [clients]: ${users.length} users found, ${clientTokens.length} with tokens`);
+      tokens.push(...clientTokens);
     }
 
     if (target === 'providers' || target === 'both') {
       const shops = await this.shopsRepo.find({
         select: ['fcm_token'],
       });
-      tokens.push(...shops.map((s) => s.fcm_token).filter((t): t is string => !!t));
+      const providerTokens = shops.map((s) => s.fcm_token).filter((t): t is string => !!t);
+      this.logger.log(`Broadcast [providers]: ${shops.length} shops found, ${providerTokens.length} with tokens`);
+      tokens.push(...providerTokens);
     }
+
+    this.logger.log(`Broadcast total tokens: ${tokens.length}`);
 
     let sent = 0;
     let failed = 0;
@@ -93,13 +102,61 @@ export class NotificationsController {
           token,
           title,
           body: message,
+          data: imageUrl ? { imageUrl } : undefined,
         });
         sent++;
-      } catch (_) {
+      } catch (err: any) {
+        this.logger.error(`Push failed for token: ${err.message}`);
         failed++;
       }
     }
 
+    // Persist notifications in DB for history
+    if (target === 'clients' || target === 'both') {
+      const users = await this.usersRepo.find({
+        where: { role: 'client' },
+        select: ['id'],
+      });
+      for (const user of users) {
+        const notif = this.notificationRepo.create({
+          user_id: user.id,
+          type: 'broadcast',
+          title,
+          body: message,
+          image_url: imageUrl || null,
+          is_read: false,
+        });
+        await this.notificationRepo.save(notif);
+      }
+    }
+
+    if (target === 'providers' || target === 'both') {
+      const shops = await this.shopsRepo.find({
+        select: ['user_id'],
+      });
+      for (const shop of shops) {
+        if (!shop.user_id) continue;
+        const notif = this.notificationRepo.create({
+          user_id: shop.user_id,
+          type: 'broadcast',
+          title,
+          body: message,
+          image_url: imageUrl || null,
+          is_read: false,
+        });
+        await this.notificationRepo.save(notif);
+      }
+    }
+
     return { sent, failed };
+  }
+
+  /** Get all notifications for admin history (newest first). */
+  @Get()
+  async getAllNotifications(): Promise<Notification[]> {
+    return this.notificationRepo.find({
+      order: { created_at: 'DESC' },
+      take: 50,
+    });
   }
 }
