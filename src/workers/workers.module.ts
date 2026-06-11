@@ -5,6 +5,9 @@ import { WorkerSchedule } from './entities/worker-schedule.entity';
 import { WorkerException } from './entities/worker-exception.entity';
 import { Bookings } from '../client/bookings/bookings.entity';
 import { Services } from '../services/services.entity';
+import { Shops } from '../shops/shop.entity';
+import { Users } from '../users/user.entity';
+import { ProOwnners } from '../providers/pro_ownners/pro_ownners.entity';
 import { WorkersService } from './workers.service';
 import { WorkersController } from './workers.controller';
 
@@ -16,6 +19,9 @@ import { WorkersController } from './workers.controller';
       WorkerException,
       Bookings,
       Services,
+      Shops,
+      Users,
+      ProOwnners,
     ]),
   ],
   controllers: [WorkersController],
