@@ -188,6 +188,11 @@ export class ShopsService {
     return await this.shopsRepository.save(shop);
   }
 
+  // ✅ Count shops
+  async count(): Promise<number> {
+    return this.shopsRepository.count();
+  }
+
   // ✅ (Optional) Delete shop
   async remove(id: number): Promise<void> {
     const result = await this.shopsRepository.delete(id);

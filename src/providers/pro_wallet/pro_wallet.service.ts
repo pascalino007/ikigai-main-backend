@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { ProWallet } from './pro_wallet.entity';
 import { Transaction } from '../../transaction/transaction.entity';
 import { Shops } from '../../shops/shop.entity';
+import { Bookings } from '../../client/bookings/bookings.entity';
 import { TransactionStatus, TransactionMotif } from '../../transaction/transaction.contants';
 
 @Injectable()
@@ -15,6 +16,8 @@ export class ProWalletService {
     private readonly transactionRepo: Repository<Transaction>,
     @InjectRepository(Shops)
     private readonly shopsRepo: Repository<Shops>,
+    @InjectRepository(Bookings)
+    private readonly bookingRepo: Repository<Bookings>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -47,11 +50,44 @@ export class ProWalletService {
     if (!amount || amount <= 0) throw new BadRequestException('Invalid withdrawal amount');
 
     return this.dataSource.transaction(async (manager) => {
-      const wallet = await manager.findOne(ProWallet, {
+      let wallet = await manager.findOne(ProWallet, {
         where: { shop_id: shopId },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!wallet) throw new NotFoundException('Wallet not found');
+      if (!wallet) {
+        wallet = manager.create(ProWallet, { shop_id: shopId, balance: 0 });
+        await manager.save(ProWallet, wallet);
+      }
+
+      // Auto-credit any missing revenue from completed bookings
+      const doneBookings = await manager.find(Bookings, {
+        where: { provider_id: shopId, booking_status: 5 },
+      });
+      const totalRevenue = doneBookings.reduce((sum, b) => sum + b.amount, 0);
+      if (wallet.balance < totalRevenue) {
+        const missing = totalRevenue - wallet.balance;
+        wallet.balance += missing;
+        await manager.save(ProWallet, wallet);
+        const shop = await manager.findOne(Shops, { where: { id: shopId } });
+        const adjTx = manager.create(Transaction, {
+          label: 'Ajustement solde — revenus complétés',
+          fromUserId: 0,
+          toUserId: shop?.user_id ?? 0,
+          amount: missing,
+          currency: 'XOF',
+          status: TransactionStatus.SUCCESS,
+          transactionMotifId: TransactionMotif.BOOKING_PAYMENT,
+          transactionRef: `PRO-ADJ-${Date.now()}-${shopId}`,
+          paymentMethod: 'system',
+          paymentProvider: 'system',
+          externalPaymentId: null,
+          balanceBefore: wallet.balance - missing,
+          balanceAfter: wallet.balance,
+          metadata: { shopId, reason: 'auto-sync revenue' },
+        });
+        await manager.save(Transaction, adjTx);
+      }
+
       if (wallet.balance < amount) throw new BadRequestException('Insufficient balance');
 
       const shop = await manager.findOne(Shops, { where: { id: shopId } });

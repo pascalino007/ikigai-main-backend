@@ -25,6 +25,13 @@ export class ShopsController {
     return await this.shopsService.create(createShopDto);
   }
 
+  // ✅ Get shop count
+  @Get('stats/count')
+  async count(): Promise<{ count: number }> {
+    const count = await this.shopsService.count();
+    return { count };
+  }
+
   // ✅ Get all shops, optionally filtered by grade (basic|pro|elite)
   @Get()
   async findAll(@Query('grade') grade?: string): Promise<Shops[]> {

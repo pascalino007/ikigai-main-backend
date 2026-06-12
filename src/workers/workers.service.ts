@@ -144,7 +144,8 @@ export class WorkersService {
 
   async update(id: number, dto: UpdateWorkerDto): Promise<Worker> {
     const worker = await this.findOne(id);
-    Object.assign(worker, dto);
+    const { schedules: _schedules, ...rest } = dto as any;
+    Object.assign(worker, rest);
 
     if (dto.schedules) {
       // Replace all schedules

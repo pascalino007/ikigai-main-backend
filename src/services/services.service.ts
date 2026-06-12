@@ -103,6 +103,11 @@ export class ServicesService {
     return await this.servicesRepository.save(service);
   }
 
+  // ✅ Count services
+  async count(): Promise<number> {
+    return this.servicesRepository.count();
+  }
+
   // ✅ Delete a service
   async remove(id: number): Promise<{ message: string }> {
     const result = await this.servicesRepository.delete(id);

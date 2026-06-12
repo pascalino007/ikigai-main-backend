@@ -51,6 +51,7 @@ import { WorkerSchedule } from './workers/entities/worker-schedule.entity';
 import { WorkerException } from './workers/entities/worker-exception.entity';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { Subscription } from './subscriptions/subscription.entity';
+import { SubscriptionPlan } from './subscriptions/subscription-plan.entity';
 import { ProWallet } from './providers/pro_wallet/pro_wallet.entity';
 import { ShopSchedulerModule } from './scheduler/shop-scheduler.module';
 import { BookingSchedulerModule } from './scheduler/booking-scheduler.module';
@@ -93,12 +94,14 @@ import { MiServicesModule } from './mi-services/mi-services.module';
         WorkerSchedule,
         WorkerException,
         Subscription,
+        SubscriptionPlan,
         ProWallet,
         Notification,
         MiService,
         MiServiceOrder,
       ],
       synchronize: true,
+      autoLoadEntities: true,
     }),
     UsersModule,
     CategoriesModule,

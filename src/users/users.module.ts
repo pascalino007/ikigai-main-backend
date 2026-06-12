@@ -18,7 +18,7 @@ import { MailModule } from '../mail/mail.module';
     PassportModule,
     JwtModule.register({
       secret: 'yourSecretKey', // TODO: Move to environment variables (e.g. process.env.JWT_SECRET)
-      signOptions: { expiresIn: '1h' },
+      signOptions: { expiresIn: '30m' },
     }),
   ],
   controllers: [UsersController],

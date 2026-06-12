@@ -5,9 +5,10 @@ import { ProWalletService } from './pro_wallet.service';
 import { ProWallet } from './pro_wallet.entity';
 import { Transaction } from '../../transaction/transaction.entity';
 import { Shops } from '../../shops/shop.entity';
+import { Bookings } from '../../client/bookings/bookings.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ProWallet, Transaction, Shops])],
+  imports: [TypeOrmModule.forFeature([ProWallet, Transaction, Shops, Bookings])],
   controllers: [ProWalletController],
   providers: [ProWalletService],
   exports: [ProWalletService],

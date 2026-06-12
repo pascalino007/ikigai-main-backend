@@ -221,16 +221,7 @@ export class BookingsService {
     booking.booking_status = BookingStatus.DONE;
     booking.checked_out_at = new Date();
     await this.bookingRepo.save(booking);
-
-    // Credit shop wallet
-    if (booking.provider_id && booking.amount > 0) {
-      await this.proWalletService.creditForBooking(
-        booking.provider_id,
-        booking.amount,
-        `Booking #${booking.id} completed`,
-        `BOOKING-PAYOUT-${booking.id}-${Date.now()}`,
-      );
-    }
+    // Wallet is credited automatically by BookingsSubscriber
 
     return this.enrichBooking(booking);
   }
@@ -382,5 +373,24 @@ export class BookingsService {
     booking.booking_status = BookingStatus.CANCELLED;
     await this.bookingRepo.save(booking);
     return this.enrichBooking(booking);
+  }
+
+  /** Admin dashboard: total bookings count (optionally filtered by date range) */
+  async count(startDate?: string, endDate?: string): Promise<number> {
+    const where: any = {};
+    if (startDate && endDate) {
+      where.booking_date = Between(startDate, endDate);
+    }
+    return this.bookingRepo.count({ where });
+  }
+
+  /** Admin dashboard: total revenue from completed bookings (optionally filtered by date range) */
+  async getRevenue(startDate?: string, endDate?: string): Promise<number> {
+    const where: any = { booking_status: BookingStatus.DONE };
+    if (startDate && endDate) {
+      where.booking_date = Between(startDate, endDate);
+    }
+    const bookings = await this.bookingRepo.find({ where, select: ['amount'] });
+    return bookings.reduce((sum, b) => sum + (b.amount || 0), 0);
   }
 }

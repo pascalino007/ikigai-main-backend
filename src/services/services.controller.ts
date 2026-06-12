@@ -14,6 +14,13 @@ export class ServicesController {
     return await this.servicesService.create(createServiceDto);
   }
 
+  // ✅ Get service count
+  @Get('stats/count')
+  async count(): Promise<{ count: number }> {
+    const count = await this.servicesService.count();
+    return { count };
+  }
+
   // ✅ Get all services, optionally filtered by shop_grade or category
   @Get()
   async findAll(

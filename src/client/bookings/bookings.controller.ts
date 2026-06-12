@@ -83,6 +83,16 @@ export class BookingsController {
     );
   }
 
+  @Get('stats/count')
+  count(@Query('startDate') startDate?: string, @Query('endDate') endDate?: string) {
+    return this.bookingService.count(startDate, endDate).then((count) => ({ count }));
+  }
+
+  @Get('stats/revenue')
+  revenue(@Query('startDate') startDate?: string, @Query('endDate') endDate?: string) {
+    return this.bookingService.getRevenue(startDate, endDate).then((revenue) => ({ revenue }));
+  }
+
   @Get()
   findAll(@Query() query: FindBookingsDto) {
     return this.bookingService.findAll(query);
