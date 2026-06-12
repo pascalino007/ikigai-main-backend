@@ -150,6 +150,7 @@ export class WorkersService {
     if (dto.schedules) {
       // Replace all schedules
       await this.scheduleRepo.delete({ worker_id: id });
+      (worker as any).schedules = []; // clear in-memory so cascade save doesn't try to re-save deleted ones
       const schedules = dto.schedules.map((s) =>
         this.scheduleRepo.create({
           worker_id: id,
