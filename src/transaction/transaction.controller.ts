@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, ParseIntPipe } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, ParseIntPipe, Query } from '@nestjs/common';
 import { TransactionsService } from './transaction.service';
 import { InitiateDepositDto } from './dtos/initiate-deposit.dto';
 
@@ -61,5 +61,35 @@ export class TransactionsController {
     @Body() body: { userId: number; amount: number; phone?: string },
   ) {
     return this.transactionsService.requestWithdrawal(body);
+  }
+
+  @Post('subscription/initiate')
+  initiateSubscriptionPayment(
+    @Body() body: {
+      userId: number;
+      shopId?: number;
+      amount: number;
+      plan: string;
+      interval: 'month' | 'year';
+      paymentProvider: 'stripe' | 'kkiapay' | 'sandbox';
+      paymentChannel: string;
+    },
+  ) {
+    return this.transactionsService.initiateSubscriptionPayment(body);
+  }
+
+  @Get('withdrawals')
+  getWithdrawals(@Query('status') status?: 'pending' | 'success' | 'failed') {
+    return this.transactionsService.getWithdrawals(status);
+  }
+
+  @Post('withdrawals/:id/confirm')
+  confirmWithdrawal(@Param('id', ParseIntPipe) id: number) {
+    return this.transactionsService.confirmWithdrawal(id);
+  }
+
+  @Post('withdrawals/:id/reject')
+  rejectWithdrawal(@Param('id', ParseIntPipe) id: number) {
+    return this.transactionsService.rejectWithdrawal(id);
   }
 }

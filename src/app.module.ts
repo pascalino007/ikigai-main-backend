@@ -56,6 +56,9 @@ import { ShopSchedulerModule } from './scheduler/shop-scheduler.module';
 import { BookingSchedulerModule } from './scheduler/booking-scheduler.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { Notification } from './notifications/notification.entity';
+import { MiService } from './mi-services/mi-service.entity';
+import { MiServiceOrder } from './mi-services/mi-service-order.entity';
+import { MiServicesModule } from './mi-services/mi-services.module';
 
 @Module({
   imports: [
@@ -92,6 +95,8 @@ import { Notification } from './notifications/notification.entity';
         Subscription,
         ProWallet,
         Notification,
+        MiService,
+        MiServiceOrder,
       ],
       synchronize: true,
     }),
@@ -124,6 +129,7 @@ import { Notification } from './notifications/notification.entity';
     ShopSchedulerModule,
     BookingSchedulerModule,
     NotificationsModule,
+    MiServicesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -22,6 +22,9 @@ import { Shops } from '../shops/shop.entity';
 import { Services } from '../services/services.entity';
 import { Users } from '../users/user.entity';
 import { Notification } from '../notifications/notification.entity';
+import { Subscription } from '../subscriptions/subscription.entity';
+import { SubscriptionPlan } from '../subscriptions/subscription-plan.entity';
+import { MiServiceOrder } from '../mi-services/mi-service-order.entity';
 
 @Injectable()
 export class PaymentWebhookService {
@@ -37,6 +40,10 @@ export class PaymentWebhookService {
     private readonly usersRepo: Repository<Users>,
     @InjectRepository(Notification)
     private readonly notificationRepo: Repository<Notification>,
+    @InjectRepository(Subscription)
+    private readonly subscriptionRepo: Repository<Subscription>,
+    @InjectRepository(SubscriptionPlan)
+    private readonly planRepo: Repository<SubscriptionPlan>,
     private readonly notificationsService: NotificationsService,
     private readonly mailService: MailService,
   ) {}
@@ -103,6 +110,18 @@ export class PaymentWebhookService {
       // ── BOOKING PAYMENT ──
       if (txn.transactionMotifId === TransactionMotif.BOOKING_PAYMENT) {
         await this.applyBookingPaymentEvent(manager, txn, event);
+        return;
+      }
+
+      // ── SUBSCRIPTION PAYMENT ──
+      if (txn.transactionMotifId === TransactionMotif.SUBSCRIPTION) {
+        await this.applySubscriptionEvent(manager, txn, event);
+        return;
+      }
+
+      // ── MI SERVICE PAYMENT ──
+      if (txn.transactionMotifId === TransactionMotif.MI_SERVICE) {
+        await this.applyMiServiceEvent(manager, txn, event);
         return;
       }
 
@@ -210,6 +229,135 @@ export class PaymentWebhookService {
       });
     } catch (e) {
       this.logger.error(`Failed to notify user ${userId} of deposit: ${e.message}`);
+    }
+  }
+
+  /** Confirm Mi service order on successful payment. */
+  private async applyMiServiceEvent(
+    manager: import('typeorm').EntityManager,
+    txn: Transaction,
+    event: NormalizedPaymentEvent,
+  ): Promise<void> {
+    if (event.status === 'succeeded') {
+      if (txn.status === TransactionStatus.SUCCESS) {
+        return; // idempotent
+      }
+      txn.status = TransactionStatus.SUCCESS;
+      if (event.externalPaymentId) {
+        txn.externalPaymentId = event.externalPaymentId;
+      }
+      await manager.save(Transaction, txn);
+
+      const meta = (txn.metadata ?? {}) as Record<string, unknown>;
+      const orderId = typeof meta.orderId === 'number' ? meta.orderId : Number(meta.orderId);
+
+      if (orderId) {
+        const order = await manager.findOne(MiServiceOrder, { where: { id: orderId } });
+        if (order) {
+          order.status = 'paid';
+          if (event.externalPaymentId) {
+            order.external_payment_id = event.externalPaymentId;
+          }
+          await manager.save(MiServiceOrder, order);
+        }
+      }
+
+      this.logger.log(`Mi service order ${orderId} paid successfully via ${txn.transactionRef}`);
+      return;
+    }
+
+    if (event.status === 'failed') {
+      if (txn.status === TransactionStatus.SUCCESS) {
+        this.logger.warn(`Late failure for already successful Mi service ${txn.transactionRef}`);
+        return;
+      }
+      txn.status = TransactionStatus.FAILED;
+      if (event.externalPaymentId) {
+        txn.externalPaymentId = event.externalPaymentId;
+      }
+      await manager.save(Transaction, txn);
+
+      const meta = (txn.metadata ?? {}) as Record<string, unknown>;
+      const orderId = typeof meta.orderId === 'number' ? meta.orderId : Number(meta.orderId);
+      if (orderId) {
+        const order = await manager.findOne(MiServiceOrder, { where: { id: orderId } });
+        if (order) {
+          order.status = 'failed';
+          await manager.save(MiServiceOrder, order);
+        }
+      }
+    }
+  }
+
+  /** Create subscription record on successful payment. */
+  private async applySubscriptionEvent(
+    manager: import('typeorm').EntityManager,
+    txn: Transaction,
+    event: NormalizedPaymentEvent,
+  ): Promise<void> {
+    const meta = (txn.metadata ?? {}) as Record<string, unknown>;
+    const planName = String(meta.plan ?? '');
+    const interval = String(meta.interval ?? 'month');
+    const userId = typeof meta.userId === 'number' ? meta.userId : Number(meta.userId);
+    const shopId = meta.shopId ? (typeof meta.shopId === 'number' ? meta.shopId : Number(meta.shopId)) : null;
+
+    if (event.status === 'succeeded') {
+      if (txn.status === TransactionStatus.SUCCESS) {
+        return; // idempotent
+      }
+
+      txn.status = TransactionStatus.SUCCESS;
+      if (event.externalPaymentId) {
+        txn.externalPaymentId = event.externalPaymentId;
+      }
+      await manager.save(Transaction, txn);
+
+      // Create the subscription
+      const sub = manager.create(Subscription, {
+        user_id: userId,
+        shop_id: shopId,
+        plan: planName,
+        status: 'active',
+        price: txn.amount,
+        currency: txn.currency,
+        interval,
+        started_at: new Date(),
+        next_billing: interval === 'year'
+          ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      });
+      await manager.save(Subscription, sub);
+
+      this.logger.log(`Subscription created for user ${userId} / shop ${shopId}: ${planName} (${interval})`);
+
+      // Notify user
+      try {
+        const user = await this.usersRepo.findOne({ where: { id: userId } });
+        if (user) {
+          await this.notificationRepo.save({
+            user_id: userId,
+            type: 'subscription',
+            title: 'Abonnement activé',
+            body: `Votre abonnement ${planName} (${interval}) est maintenant actif.`,
+            is_read: false,
+          });
+        }
+      } catch (e) {
+        this.logger.error(`Failed to notify user ${userId} of subscription: ${e.message}`);
+      }
+      return;
+    }
+
+    if (event.status === 'failed') {
+      if (txn.status === TransactionStatus.SUCCESS) {
+        this.logger.warn(`Late failure for already successful subscription ${txn.transactionRef}`);
+        return;
+      }
+      txn.status = TransactionStatus.FAILED;
+      if (event.externalPaymentId) {
+        txn.externalPaymentId = event.externalPaymentId;
+      }
+      await manager.save(Transaction, txn);
     }
   }
 

@@ -15,4 +15,6 @@ export const TransactionMotif = {
   WITHDRAWAL: 8,
   /** External card / MoMo payment for a confirmed appointment */
   BOOKING_PAYMENT: 9,
+  /** Provider ordering a Mi service */
+  MI_SERVICE: 10,
 } as const;

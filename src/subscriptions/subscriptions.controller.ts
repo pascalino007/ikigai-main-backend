@@ -7,6 +7,8 @@ import {
   Param,
   Body,
   ParseIntPipe,
+  Query,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import { SubscriptionsService } from './subscriptions.service';
 
@@ -42,5 +44,38 @@ export class SubscriptionsController {
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.service.remove(id);
+  }
+
+  @Get('plans')
+  findAllPlans() {
+    return this.service.findAllPlans();
+  }
+
+  @Post('plans/seed')
+  seedPlans() {
+    return this.service.seedPlans();
+  }
+
+  @Post('plans')
+  createPlan(@Body() body: any) {
+    return this.service.createPlan(body);
+  }
+
+  @Put('plans/:id')
+  updatePlan(@Param('id', ParseIntPipe) id: number, @Body() body: any) {
+    return this.service.updatePlan(id, body);
+  }
+
+  @Delete('plans/:id')
+  removePlan(@Param('id', ParseIntPipe) id: number) {
+    return this.service.removePlan(id);
+  }
+
+  @Get('history')
+  getHistory(
+    @Query('userId', new DefaultValuePipe(0), ParseIntPipe) userId: number,
+    @Query('shopId', new DefaultValuePipe(0), ParseIntPipe) shopId: number,
+  ) {
+    return this.service.findHistory(userId, shopId);
   }
 }

@@ -80,6 +80,9 @@ export class Transaction {
   @RelationId((t: Transaction) => t.booking)
   bookingId: number | null;
 
+  @Column({ type: 'json', nullable: true })
+  metadata: Record<string, unknown> | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

@@ -80,7 +80,7 @@ export class WorkersService {
 
   async findByShop(shopId: number): Promise<Worker[]> {
     const workers = await this.workerRepo.find({
-      where: { shop_id: shopId, is_active: true },
+      where: { shop_id: shopId },
       relations: ['schedules', 'exceptions'],
     });
     if (workers.length > 0) return workers;

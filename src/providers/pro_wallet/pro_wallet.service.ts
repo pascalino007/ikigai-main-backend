@@ -1,9 +1,10 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ProWallet } from './pro_wallet.entity';
 import { Transaction } from '../../transaction/transaction.entity';
 import { Shops } from '../../shops/shop.entity';
+import { TransactionStatus, TransactionMotif } from '../../transaction/transaction.contants';
 
 @Injectable()
 export class ProWalletService {
@@ -14,6 +15,7 @@ export class ProWalletService {
     private readonly transactionRepo: Repository<Transaction>,
     @InjectRepository(Shops)
     private readonly shopsRepo: Repository<Shops>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async getOrCreateWallet(shopId: number): Promise<ProWallet> {
@@ -43,31 +45,41 @@ export class ProWalletService {
 
   async requestWithdrawal(shopId: number, amount: number, phone?: string): Promise<Transaction> {
     if (!amount || amount <= 0) throw new BadRequestException('Invalid withdrawal amount');
-    const wallet = await this.getOrCreateWallet(shopId);
-    if (wallet.balance < amount) throw new BadRequestException('Insufficient balance');
-    const shop = await this.shopsRepo.findOne({ where: { id: shopId } });
-    const userId = shop?.user_id ?? 0;
-    const transactionRef = `PRO-WDR-${Date.now()}-${shopId}`;
-    const before = wallet.balance;
-    wallet.balance -= amount;
-    await this.walletRepo.save(wallet);
-    const tx = this.transactionRepo.create({
-      label: `Withdrawal request${phone ? ` to ${phone}` : ''}`,
-      fromUserId: userId,
-      toUserId: 0,
-      amount,
-      currency: 'XOF',
-      status: 1,
-      transactionMotifId: 8,
-      transactionRef,
-      paymentMethod: 'mobile_money',
-      paymentProvider: 'manual',
-      externalPaymentId: null,
-      balanceBefore: before,
-      balanceAfter: wallet.balance,
-      bookingId: null,
+
+    return this.dataSource.transaction(async (manager) => {
+      const wallet = await manager.findOne(ProWallet, {
+        where: { shop_id: shopId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!wallet) throw new NotFoundException('Wallet not found');
+      if (wallet.balance < amount) throw new BadRequestException('Insufficient balance');
+
+      const shop = await manager.findOne(Shops, { where: { id: shopId } });
+      const userId = shop?.user_id ?? 0;
+      const transactionRef = `PRO-WDR-${Date.now()}-${shopId}`;
+      const before = wallet.balance;
+
+      wallet.balance -= amount;
+      await manager.save(ProWallet, wallet);
+
+      const tx = manager.create(Transaction, {
+        label: `Demande de retrait${phone ? ` vers ${phone}` : ''}`,
+        fromUserId: userId,
+        toUserId: 0,
+        amount,
+        currency: 'XOF',
+        status: TransactionStatus.PENDING,
+        transactionMotifId: TransactionMotif.WITHDRAWAL,
+        transactionRef,
+        paymentMethod: 'mobile_money',
+        paymentProvider: 'manual',
+        externalPaymentId: null,
+        balanceBefore: before,
+        balanceAfter: wallet.balance,
+        metadata: { shopId, phone },
+      });
+      return manager.save(Transaction, tx);
     });
-    return this.transactionRepo.save(tx);
   }
 
   async creditForBooking(shopId: number, amount: number, label: string, transactionRef: string) {
