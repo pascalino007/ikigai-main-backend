@@ -30,4 +30,12 @@ export class ProWalletController {
   ) {
     return this.service.creditForBooking(shopId, body.amount, body.label, body.transactionRef);
   }
+
+  @Post('shop/:shopId/subscription/pay')
+  paySubscriptionFromWallet(
+    @Param('shopId', ParseIntPipe) shopId: number,
+    @Body() body: { amount: number; plan: string; interval: 'month' | 'year' },
+  ) {
+    return this.service.paySubscriptionFromWallet(shopId, body.amount, body.plan, body.interval);
+  }
 }
