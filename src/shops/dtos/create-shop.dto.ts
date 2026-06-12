@@ -85,9 +85,8 @@ export class CreateShopDto {
   @IsString()
   registered_by: string;
 
-  @IsOptional()
   @IsIn(['basic', 'pro', 'elite'])
-  grade?: 'basic' | 'pro' | 'elite';
+  grade: 'basic' | 'pro' | 'elite';
 
   @IsOptional()
   @IsBoolean()
