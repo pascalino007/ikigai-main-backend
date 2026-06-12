@@ -143,15 +143,14 @@ export class WorkersService {
   }
 
   async update(id: number, dto: UpdateWorkerDto): Promise<Worker> {
-    const worker = await this.findOne(id);
-    const { schedules: _schedules, ...rest } = dto as any;
-    Object.assign(worker, rest);
+    const { schedules, ...rest } = dto as any;
 
-    if (dto.schedules) {
-      // Replace all schedules
+    // Update scalar fields directly to avoid TypeORM cascade/tracking issues
+    await this.workerRepo.update(id, rest);
+
+    if (schedules) {
       await this.scheduleRepo.delete({ worker_id: id });
-      (worker as any).schedules = []; // clear in-memory so cascade save doesn't try to re-save deleted ones
-      const schedules = dto.schedules.map((s) =>
+      const newSchedules = schedules.map((s) =>
         this.scheduleRepo.create({
           worker_id: id,
           day_of_week: s.day_of_week,
@@ -159,10 +158,9 @@ export class WorkersService {
           end_time: s.end_time,
         }),
       );
-      await this.scheduleRepo.save(schedules);
+      await this.scheduleRepo.save(newSchedules);
     }
 
-    await this.workerRepo.save(worker);
     return this.findOne(id);
   }
 

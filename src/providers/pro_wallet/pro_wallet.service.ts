@@ -59,35 +59,6 @@ export class ProWalletService {
         await manager.save(ProWallet, wallet);
       }
 
-      // Auto-credit any missing revenue from completed bookings
-      const doneBookings = await manager.find(Bookings, {
-        where: { provider_id: shopId, booking_status: 5 },
-      });
-      const totalRevenue = doneBookings.reduce((sum, b) => sum + b.amount, 0);
-      if (wallet.balance < totalRevenue) {
-        const missing = totalRevenue - wallet.balance;
-        wallet.balance += missing;
-        await manager.save(ProWallet, wallet);
-        const shop = await manager.findOne(Shops, { where: { id: shopId } });
-        const adjTx = manager.create(Transaction, {
-          label: 'Ajustement solde — revenus complétés',
-          fromUserId: 0,
-          toUserId: shop?.user_id ?? 0,
-          amount: missing,
-          currency: 'XOF',
-          status: TransactionStatus.SUCCESS,
-          transactionMotifId: TransactionMotif.BOOKING_PAYMENT,
-          transactionRef: `PRO-ADJ-${Date.now()}-${shopId}`,
-          paymentMethod: 'system',
-          paymentProvider: 'system',
-          externalPaymentId: null,
-          balanceBefore: wallet.balance - missing,
-          balanceAfter: wallet.balance,
-          metadata: { shopId, reason: 'auto-sync revenue' },
-        });
-        await manager.save(Transaction, adjTx);
-      }
-
       if (wallet.balance < amount) throw new BadRequestException('Insufficient balance');
 
       const shop = await manager.findOne(Shops, { where: { id: shopId } });
