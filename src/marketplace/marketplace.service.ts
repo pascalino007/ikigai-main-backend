@@ -17,8 +17,14 @@ export class MarketplaceService {
     return await this.productRepository.save(product);
   }
 
-  async findAll(): Promise<Product[]> {
-    return await this.productRepository.find();
+  async findAll(page = 1, limit = 20): Promise<Product[]> {
+    const safePage = page > 0 ? page : 1;
+    const safeLimit = limit > 0 && limit <= 100 ? limit : 20;
+    return await this.productRepository.find({
+      order: { id: 'DESC' },
+      skip: (safePage - 1) * safeLimit,
+      take: safeLimit,
+    });
   }
 
   async findOne(id: number): Promise<Product> {

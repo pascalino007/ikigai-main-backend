@@ -3,17 +3,21 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { MiService } from './mi-service.entity';
 import { MiServiceOrder } from './mi-service-order.entity';
+import { MiServiceCategory } from './mi-service-category.entity';
 import { Transaction } from '../transaction/transaction.entity';
 import { TransactionMotif, TransactionStatus } from '../transaction/transaction.contants';
 import { KkiapayService } from '../payments/kkiapay.service';
 import { StripeService } from '../payments/stripe.service';
 import { CreateMiServiceDto } from './dtos/create-mi-service.dto';
+import { CreateMiServiceCategoryDto } from './dtos/create-mi-service-category.dto';
 
 @Injectable()
 export class MiServicesService {
   constructor(
     @InjectRepository(MiService)
     private readonly miServiceRepo: Repository<MiService>,
+    @InjectRepository(MiServiceCategory)
+    private readonly categoryRepo: Repository<MiServiceCategory>,
     @InjectRepository(MiServiceOrder)
     private readonly orderRepo: Repository<MiServiceOrder>,
     @InjectRepository(Transaction)
@@ -22,6 +26,29 @@ export class MiServicesService {
     private readonly kkiapayService: KkiapayService,
     private readonly stripeService: StripeService,
   ) {}
+
+  // ── Category CRUD ──
+
+  async createCategory(dto: CreateMiServiceCategoryDto): Promise<MiServiceCategory> {
+    const category = this.categoryRepo.create(dto);
+    return this.categoryRepo.save(category);
+  }
+
+  async findAllCategories(): Promise<MiServiceCategory[]> {
+    return this.categoryRepo.find({ order: { createdAt: 'DESC' } });
+  }
+
+  async updateCategory(id: number, dto: Partial<CreateMiServiceCategoryDto>): Promise<MiServiceCategory> {
+    const category = await this.categoryRepo.findOne({ where: { id } });
+    if (!category) throw new NotFoundException(`Mi service category #${id} not found`);
+    Object.assign(category, dto);
+    return this.categoryRepo.save(category);
+  }
+
+  async removeCategory(id: number): Promise<void> {
+    const result = await this.categoryRepo.delete(id);
+    if (result.affected === 0) throw new NotFoundException(`Mi service category #${id} not found`);
+  }
 
   // ── Mi Service CRUD ──
 
@@ -53,11 +80,15 @@ export class MiServicesService {
 
   // ── Orders ──
 
-  async findAllOrders(): Promise<MiServiceOrder[]> {
-    return this.orderRepo.find({
-      order: { createdAt: 'DESC' },
-      relations: ['miService'],
-    });
+  async findAllOrders(): Promise<Array<MiServiceOrder & { mi_service_name?: string }>> {
+    const orders = await this.orderRepo.find({ order: { createdAt: 'DESC' } });
+    // Attach the service name (no DB relation defined; map in-memory).
+    const services = await this.miServiceRepo.find();
+    const nameById = new Map(services.map((s) => [s.id, s.name]));
+    return orders.map((o) => ({
+      ...o,
+      mi_service_name: nameById.get(o.mi_service_id),
+    }));
   }
 
   async findOrdersByShop(shopId: number): Promise<MiServiceOrder[]> {
@@ -65,6 +96,15 @@ export class MiServicesService {
       where: { shop_id: shopId },
       order: { createdAt: 'DESC' },
     });
+  }
+
+  /** Admin marks an order as delivered. */
+  async markOrderDelivered(orderId: number): Promise<MiServiceOrder> {
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    if (!order) throw new NotFoundException(`Order #${orderId} not found`);
+    order.delivered_at = new Date();
+    order.status = 'delivered';
+    return this.orderRepo.save(order);
   }
 
   /**
@@ -84,6 +124,11 @@ export class MiServicesService {
 
     const transactionRef = `MI-${Date.now()}-${shopId}-${miServiceId}`;
 
+    // Expected delivery = today + temps de réalisation (jours).
+    const eta = new Date();
+    eta.setDate(eta.getDate() + (miService.realisationDays ?? 1));
+    const expectedDeliveryDate = eta.toISOString().slice(0, 10); // YYYY-MM-DD
+
     return this.dataSource.transaction(async (manager) => {
       // Create order record
       const order = manager.create(MiServiceOrder, {
@@ -94,6 +139,7 @@ export class MiServicesService {
         status: 'pending',
         transaction_ref: transactionRef,
         payment_provider: paymentProvider,
+        expected_delivery_date: expectedDeliveryDate,
       });
       await manager.save(MiServiceOrder, order);
 

@@ -15,6 +15,15 @@ export class CreateMiServiceDto {
   @IsOptional()
   details?: string;
 
+  @IsNumber()
+  @IsOptional()
+  categoryId?: number;
+
+  /** Temps de réalisation estimé, en jours. */
+  @IsNumber()
+  @IsOptional()
+  realisationDays?: number;
+
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;

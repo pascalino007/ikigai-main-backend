@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { MarketplaceService } from './marketplace.service';
 import { CreateProductDto } from './dtos/create-product.dto';
@@ -23,8 +24,14 @@ export class MarketplaceController {
   }
 
   @Get()
-  async findAll(): Promise<Product[]> {
-    return await this.marketplaceService.findAll();
+  async findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ): Promise<Product[]> {
+    return await this.marketplaceService.findAll(
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+    );
   }
 
   @Get(':id')

@@ -35,6 +35,14 @@ export class MiServiceOrder {
   @Column({ type: 'varchar', length: 255, nullable: true })
   external_payment_id: string;
 
+  /** Date à laquelle la commande est censée être livrée (date commande + temps de réalisation). */
+  @Column({ type: 'date', nullable: true })
+  expected_delivery_date: string;
+
+  /** Renseignée par l'admin quand la commande est livrée. */
+  @Column({ type: 'timestamp', nullable: true })
+  delivered_at: Date;
+
   @CreateDateColumn()
   createdAt: Date;
 }
