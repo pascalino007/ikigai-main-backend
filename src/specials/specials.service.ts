@@ -51,7 +51,7 @@ export class SpecialsService {
 
  
 
-  async findAll(category?: string, shopGrade?: string, shopId?: string) {
+  async findAll(category?: string, shopGrade?: string, shopId?: string, includeInactive = false) {
     let specials: Special[];
     if (category) {
       // Category param may be ID or name; look up both to match Services.Category
@@ -80,6 +80,12 @@ export class SpecialsService {
         specials = await this.repo.find({ order: { createdAt: 'DESC' } });
       }
     }
+    // Client apps only see active offers; the dashboard asks for everything
+    // (include_inactive=1) so deactivated offers can be re-enabled.
+    if (!includeInactive) {
+      specials = specials.filter(s => s.is_active !== false);
+    }
+
     const enriched = await this.enrichWithShop(specials);
     if (shopGrade) {
       return enriched.filter(s => (s as any).shop_grade === shopGrade);

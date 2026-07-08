@@ -32,8 +32,14 @@ export class SpecialsController {
     @Query('category') category?: string,
     @Query('shop_grade') shopGrade?: string,
     @Query('shop_id') shopId?: string,
+    @Query('include_inactive') includeInactive?: string,
   ) {
-    return this.specialsService.findAll(category, shopGrade, shopId);
+    return this.specialsService.findAll(
+      category,
+      shopGrade,
+      shopId,
+      includeInactive === '1' || includeInactive === 'true',
+    );
   }
 
   @Get(':id')

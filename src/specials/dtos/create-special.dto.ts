@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsDateString, IsInt, Min } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsDateString, IsInt, IsBoolean, Min } from 'class-validator';
 
 export class CreateSpecialDto {
   @IsString()
@@ -48,4 +48,8 @@ export class CreateSpecialDto {
   @IsOptional()
   @IsString()
   termsAndConditions?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  is_active?: boolean;
 }

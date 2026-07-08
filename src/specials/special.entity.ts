@@ -44,6 +44,10 @@ export class Special {
   @Column({ type: 'int', default: 0 })
   uses: number;
 
+  // Offer visibility switch (the dashboard's Active/Inactive status).
+  @Column({ default: true })
+  is_active: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 
