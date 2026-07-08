@@ -7,8 +7,14 @@ export class MailService {
   private transporter: nodemailer.Transporter;
 
   constructor() {
-    const user = process.env.MAIL_USER || 'myikigai2025@gmail.com';
-    const pass = process.env.MAIL_PASS || 'zmsvmyxidjfodosx';
+    const user = process.env.MAIL_USER;
+    const pass = process.env.MAIL_PASS;
+
+    if (!user || !pass) {
+      this.logger.warn(
+        'MAIL_USER / MAIL_PASS not set — outgoing email is disabled',
+      );
+    }
 
     this.transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
@@ -32,7 +38,7 @@ export class MailService {
   }): Promise<boolean> {
     try {
       const info = await this.transporter.sendMail({
-        from: '"Ikigai" <myikigai2025@gmail.com>',
+        from: `"Ikigai" <${process.env.MAIL_USER}>`,
         to: options.to,
         subject: options.subject,
         html: options.html,

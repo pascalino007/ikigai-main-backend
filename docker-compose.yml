@@ -32,8 +32,10 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-kabadelivery}
       MYSQL_DATABASE: ${DB_DATABASE:-ikigaidb}
+    # Bound to localhost only — the API reaches MySQL over the compose
+    # network; never expose the DB to the public internet.
     ports:
-      - "${DB_EXPOSE_PORT:-3306}:3306"
+      - "127.0.0.1:${DB_EXPOSE_PORT:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -47,8 +49,10 @@ services:
     container_name: ikigai-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
+    # Bound to localhost only — Redis has no auth; exposing it publicly
+    # would let anyone read/write the cache.
     ports:
-      - "${REDIS_EXPOSE_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_EXPOSE_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:

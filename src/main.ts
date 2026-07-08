@@ -3,7 +3,12 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  
+  if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+    throw new Error(
+      'JWT_SECRET must be set in production — refusing to start with the default secret',
+    );
+  }
+
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
