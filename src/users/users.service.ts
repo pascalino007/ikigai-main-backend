@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, UnauthorizedException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, UnauthorizedException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -210,7 +210,16 @@ export class UsersService {
 
   private async sendAuthOtpEmail(email: string, otp: string, subject: string, purpose: string): Promise<void> {
     const sent = await this.mailService.sendMail({ to: email, subject, html: otpEmailTemplate(otp, purpose) });
-    if (!sent) this.logger.warn(`Failed to send OTP email to ${email}, but OTP is still valid`);
+    if (!sent) {
+      this.logger.warn(`Failed to send OTP email to ${email}`);
+      // In production the email is the only way to get the code — pretending
+      // it was sent would strand the user. In dev, devOtp covers the flow.
+      if (process.env.NODE_ENV === 'production') {
+        throw new ServiceUnavailableException(
+          "Impossible d'envoyer l'email de vérification. Veuillez réessayer plus tard.",
+        );
+      }
+    }
   }
 
   private devOtp(otp: string) {
@@ -518,11 +527,18 @@ export class UsersService {
       html,
     });
 
+    const isProd = process.env.NODE_ENV === 'production';
     if (!sent) {
-      this.logger.warn(`Failed to send OTP email to ${normalized}, but OTP is still valid`);
+      this.logger.warn(`Failed to send reset OTP email to ${normalized}`);
+      // Don't claim "sent" when it wasn't: in prod the email is the only
+      // channel for the code (devOtp keeps the flow usable in dev).
+      if (isProd) {
+        throw new ServiceUnavailableException(
+          "Impossible d'envoyer l'email de réinitialisation. Veuillez réessayer plus tard.",
+        );
+      }
     }
 
-    const isProd = process.env.NODE_ENV === 'production';
     return {
       success: true,
       message: 'A verification code has been sent to your email',
