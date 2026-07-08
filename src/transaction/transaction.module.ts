@@ -4,7 +4,6 @@ import { TransactionsService } from './transaction.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Transaction } from './transaction.entity';
 import { ClientWallet } from 'src/client/client_wallet/client_wallet.entity';
-import { ClientWalletService } from 'src/client/client_wallet/client_wallet.service';
 import { Users } from '../users/user.entity';
 import { PaymentsModule } from '../payments/payments.module';
 
@@ -14,7 +13,7 @@ import { PaymentsModule } from '../payments/payments.module';
     PaymentsModule,
   ],
   controllers: [TransactionsController],
-  providers: [TransactionsService, ClientWalletService],
+  providers: [TransactionsService],
   exports: [TransactionsService],
 })
 export class TransactionModule {}
