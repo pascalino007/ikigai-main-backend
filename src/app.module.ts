@@ -45,6 +45,8 @@ import { Commande } from './commandes/commande.entity';
 import { ReviewsModule } from './reviews/reviews.module';
 import { Review } from './reviews/review.entity';
 import { MailModule } from './mail/mail.module';
+import { RedisModule } from './redis/redis.module';
+import { AuthModule } from './auth/auth.module';
 import { WorkersModule } from './workers/workers.module';
 import { Worker } from './workers/entities/worker.entity';
 import { WorkerSchedule } from './workers/entities/worker-schedule.entity';
@@ -60,6 +62,9 @@ import { Notification } from './notifications/notification.entity';
 import { MiService } from './mi-services/mi-service.entity';
 import { MiServiceOrder } from './mi-services/mi-service-order.entity';
 import { MiServicesModule } from './mi-services/mi-services.module';
+import { AnalyticsEvent } from './analytics/analytics-event.entity';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { TrustedDevice } from './users/trusted-device.entity';
 
 @Module({
   imports: [
@@ -68,11 +73,11 @@ import { MiServicesModule } from './mi-services/mi-services.module';
     }),
     TypeOrmModule.forRoot({
       type: 'mysql',
-      host: 'localhost',
-      port: 3306,
-      database: 'ikigaidb',
-      username: 'root',
-      password: 'kabadelivery',
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '3306', 10),
+      database: process.env.DB_DATABASE || 'ikigaidb',
+      username: process.env.DB_USERNAME || 'root',
+      password: process.env.DB_PASSWORD || 'kabadelivery',
       entities: [
         Users,
         Shops,
@@ -99,8 +104,12 @@ import { MiServicesModule } from './mi-services/mi-services.module';
         Notification,
         MiService,
         MiServiceOrder,
+        AnalyticsEvent,
+        TrustedDevice,
       ],
-      synchronize: true,
+      synchronize: process.env.DB_SYNCHRONIZE
+        ? process.env.DB_SYNCHRONIZE === 'true'
+        : true,
       autoLoadEntities: true,
     }),
     UsersModule,
@@ -126,6 +135,8 @@ import { MiServicesModule } from './mi-services/mi-services.module';
     CommandesModule,
     ReviewsModule,
     MailModule,
+    RedisModule,
+    AuthModule,
     WorkersModule,
     SubscriptionsModule,
     ScheduleModule.forRoot(),
@@ -133,6 +144,7 @@ import { MiServicesModule } from './mi-services/mi-services.module';
     BookingSchedulerModule,
     NotificationsModule,
     MiServicesModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

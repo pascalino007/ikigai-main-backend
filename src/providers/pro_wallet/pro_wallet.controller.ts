@@ -28,7 +28,7 @@ export class ProWalletController {
     @Param('shopId', ParseIntPipe) shopId: number,
     @Body() body: { amount: number; label: string; transactionRef: string },
   ) {
-    return this.service.creditForBooking(shopId, body.amount, body.label, body.transactionRef);
+    return this.service.creditManual(shopId, body.amount, body.label, body.transactionRef);
   }
 
   @Post('shop/:shopId/subscription/pay')

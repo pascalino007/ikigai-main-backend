@@ -69,6 +69,29 @@ export class WorkersController {
     return this.workersService.removeException(id);
   }
 
+  // ─── BUSY PERIODS (manual "occupé") ─────────────────────────────────────
+
+  @Post(':id/busy')
+  addBusyPeriod(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { busy_date: string; start_time: string; end_time: string; reason?: string },
+  ) {
+    return this.workersService.addBusyPeriod(id, body);
+  }
+
+  @Get(':id/busy')
+  getBusyPeriods(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('date') date?: string,
+  ) {
+    return this.workersService.getBusyPeriods(id, date);
+  }
+
+  @Delete('busy/:id')
+  removeBusyPeriod(@Param('id', ParseIntPipe) id: number) {
+    return this.workersService.removeBusyPeriod(id);
+  }
+
   @Get(':id/bookings')
   getWorkerBookings(@Param('id', ParseIntPipe) id: number) {
     return this.workersService.getWorkerBookings(id);

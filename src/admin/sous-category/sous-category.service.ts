@@ -6,6 +6,9 @@ import { SousCategories } from './sous-category.entity'
 import { Categories } from '../categories/categories.entity'
 import { CreateSousCategoryDto } from './dtos/create-souscategory.dto'
 import { UpdateSousCategoryDto } from './dtos/update-souscategory.dto'
+import { RedisService } from '../../redis/redis.service'
+
+const TTL = 300
 
 
 @Injectable()
@@ -16,7 +19,12 @@ export class SousCategoriesService {
     private readonly sousCategoryRepo: Repository<SousCategories>,
     @InjectRepository(Categories)
     private readonly categoryRepo: Repository<Categories>,
+    private readonly redis: RedisService,
   ) {}
+
+  private invalidate(): Promise<void> {
+    return this.redis.delPattern('scat:*')
+  }
 
   private async enrichWithCategoryName(
     items: SousCategories[],
@@ -30,20 +38,26 @@ export class SousCategoriesService {
   }
 
   async findsouscategoriesby(category: string): Promise<(SousCategories & { categoryName: string })[]> {
-    const items = await this.sousCategoryRepo.find({ where: { category } })
-    return this.enrichWithCategoryName(items)
+    return this.redis.remember(`scat:by:${category}`, TTL, async () => {
+      const items = await this.sousCategoryRepo.find({ where: { category } })
+      return this.enrichWithCategoryName(items)
+    })
   }
 
   async findAll(): Promise<(SousCategories & { categoryName: string })[]> {
-    const items = await this.sousCategoryRepo.find()
-    return this.enrichWithCategoryName(items)
+    return this.redis.remember('scat:all', TTL, async () => {
+      const items = await this.sousCategoryRepo.find()
+      return this.enrichWithCategoryName(items)
+    })
   }
 
   async findOne(id: number): Promise<SousCategories & { categoryName: string }> {
-    const item = await this.sousCategoryRepo.findOne({ where: { id } })
-    if (!item) throw new NotFoundException('SousCategory not found')
-    const [enriched] = await this.enrichWithCategoryName([item])
-    return enriched
+    return this.redis.remember(`scat:one:${id}`, TTL, async () => {
+      const item = await this.sousCategoryRepo.findOne({ where: { id } })
+      if (!item) throw new NotFoundException('SousCategory not found')
+      const [enriched] = await this.enrichWithCategoryName([item])
+      return enriched
+    })
   }
 
   async create(dto: CreateSousCategoryDto): Promise<SousCategories> {
@@ -52,19 +66,24 @@ export class SousCategoriesService {
       is_active:  true,
       createdAt: new Date(),
     })
-    return this.sousCategoryRepo.save(newCategory)
+    const saved = await this.sousCategoryRepo.save(newCategory)
+    await this.invalidate()
+    return saved
   }
 
   async update(id: number, dto: UpdateSousCategoryDto): Promise<SousCategories> {
     const category = await this.sousCategoryRepo.findOne({ where: { id } })
     if (!category) throw new NotFoundException('SousCategory not found')
     Object.assign(category, dto)
-    return this.sousCategoryRepo.save(category)
+    const saved = await this.sousCategoryRepo.save(category)
+    await this.invalidate()
+    return saved
   }
 
   async remove(id: number): Promise<void> {
     const category = await this.sousCategoryRepo.findOne({ where: { id } })
     if (!category) throw new NotFoundException('SousCategory not found')
     await this.sousCategoryRepo.remove(category)
+    await this.invalidate()
   }
 }

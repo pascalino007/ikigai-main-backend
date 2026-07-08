@@ -90,6 +90,10 @@ export class Shops {
   @Column({ default: false })
   is_verified: boolean;
 
+  /** Number of times a client opened this shop in the mobile app (visit counter). */
+  @Column({ type: 'int', default: 0 })
+  views: number;
+
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   createdAt: Date;
 

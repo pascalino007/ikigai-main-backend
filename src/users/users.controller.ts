@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CreateUserDto } from './dtos/create-user.dto';
+import { RegisterWithOtpDto } from './dtos/register-otp.dto';
 import { UsersService } from './users.service';
 import { SigninUserDto } from './dtos/signin-user.dto';
 import { Users } from './user.entity';
@@ -37,6 +38,57 @@ export class UsersController {
   async signin(@Body() signinDto: SigninUserDto) {
     return await this.usersService.signin(signinDto);
   };
+
+  // ===== OTP-protected sign-up (email verification) =====
+  @Post('register/request-otp')
+  async requestRegisterOtp(@Body('email') email: string) {
+    return await this.usersService.requestRegisterOtp(email);
+  }
+
+  @Post('register/verify')
+  async verifyRegister(@Body() body: RegisterWithOtpDto) {
+    return await this.usersService.verifyRegisterOtpAndCreate(body);
+  }
+
+  // ===== OTP-protected login (2FA, with optional trusted-device skip) =====
+  @Post('login/request-otp')
+  async requestLoginOtp(
+    @Body('email') email: string,
+    @Body('password') password: string,
+    @Body('deviceId') deviceId?: string,
+    @Body('deviceToken') deviceToken?: string,
+  ) {
+    return await this.usersService.requestLoginOtp(email, password, deviceId, deviceToken);
+  }
+
+  @Post('login/verify')
+  async verifyLogin(
+    @Body('email') email: string,
+    @Body('otp') otp: string,
+    @Body('deviceId') deviceId?: string,
+    @Body('rememberDevice') rememberDevice?: boolean,
+    @Body('deviceName') deviceName?: string,
+  ) {
+    return await this.usersService.verifyLoginOtp(email, otp, deviceId, rememberDevice, deviceName);
+  }
+
+  // ===== Single active session (one user, one device at a time) =====
+  // Apps poll this; if valid=false the session was superseded by a newer login.
+  @Post('session/check')
+  async checkSession(
+    @Body('userId') userId: number,
+    @Body('sessionId') sessionId: string,
+  ) {
+    return await this.usersService.checkSession(userId, sessionId);
+  }
+
+  @Post('session/logout')
+  async logoutSession(
+    @Body('userId') userId: number,
+    @Body('sessionId') sessionId?: string,
+  ) {
+    return await this.usersService.clearSession(userId, sessionId);
+  }
 
   // ===== Forgot password flow (static routes must come before parameterized :id) =====
   @Post('forgot-password')
@@ -64,6 +116,12 @@ export class UsersController {
   @Get('admin/otps')
   getAllOtps() {
     return UsersService.getAllOtps();
+  }
+
+  // ===== Mobile-app usage stats (Firebase push registrations) =====
+  @Get('stats/app-usage')
+  getAppUsage() {
+    return this.usersService.getAppUsageStats();
   }
 
   // Get all users

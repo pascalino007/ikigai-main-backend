@@ -7,6 +7,10 @@ import { SousCategories } from '../admin/sous-category/sous-category.entity';
 import { Shops } from '../shops/shop.entity';
 import { CreateServiceDto } from './dtos/create-service.dto';
 import { UpdateServiceDto } from './dtos/update-service.dto';
+import { RedisService } from '../redis/redis.service';
+
+/** Cached service reads expire after this many seconds. */
+const SERVICES_TTL = 60;
 
 @Injectable()
 export class ServicesService {
@@ -19,7 +23,13 @@ export class ServicesService {
     private readonly sousCategoriesRepository: Repository<SousCategories>,
     @InjectRepository(Shops)
     private readonly shopsRepository: Repository<Shops>,
+    private readonly redis: RedisService,
   ) {}
+
+  /** Drop all cached service reads (called after any write). */
+  private invalidateCache(): Promise<void> {
+    return this.redis.delPattern('services:*');
+  }
 
   private async enrich(items: Services[]): Promise<(Services & { categoryName: string; sousCategoryName: string; shop_latitude?: number; shop_longitude?: number; shop_name?: string; shop_address?: string; shop_grade?: string; shop_profileImageUrl?: string })[]> {
     const [cats, scats, shops] = await Promise.all([
@@ -53,11 +63,21 @@ export class ServicesService {
       is_active: true,
       createdAt: new Date(),
     });
-    return await this.servicesRepository.save(service);
+    const saved = await this.servicesRepository.save(service);
+    await this.invalidateCache();
+    return saved;
   }
 
-  // ✅ Get all services, optionally filtered by shop_grade or category
+  // ✅ Get all services, optionally filtered by shop_grade or category (cached)
   async findAll(shopGrade?: string, category?: string): Promise<(Services & { categoryName: string; sousCategoryName: string })[]> {
+    return this.redis.remember(
+      `services:all:${shopGrade ?? ''}:${category ?? ''}`,
+      SERVICES_TTL,
+      () => this._findAll(shopGrade, category),
+    );
+  }
+
+  private async _findAll(shopGrade?: string, category?: string): Promise<(Services & { categoryName: string; sousCategoryName: string })[]> {
     let items: Services[];
     if (category) {
       // Category param may be ID or name; look up both to match Services.Category
@@ -81,18 +101,22 @@ export class ServicesService {
     return enriched;
   }
 
-  // ✅ Get one service
+  // ✅ Get one service (cached)
   async findOne(id: number): Promise<Services & { categoryName: string; sousCategoryName: string }> {
-    const service = await this.servicesRepository.findOne({ where: { id } });
-    if (!service) throw new NotFoundException(`Service with ID ${id} not found`);
-    const [enriched] = await this.enrich([service]);
-    return enriched;
+    return this.redis.remember(`services:one:${id}`, SERVICES_TTL, async () => {
+      const service = await this.servicesRepository.findOne({ where: { id } });
+      if (!service) throw new NotFoundException(`Service with ID ${id} not found`);
+      const [enriched] = await this.enrich([service]);
+      return enriched;
+    });
   }
 
-  // ✅ Get services by provider/shop ID
+  // ✅ Get services by provider/shop ID (cached — hottest path in the booking flow)
   async findShopServices(id: number): Promise<(Services & { categoryName: string; sousCategoryName: string })[]> {
-    const items = await this.servicesRepository.find({ where: { provider_id: id } });
-    return this.enrich(items);
+    return this.redis.remember(`services:shop:${id}`, SERVICES_TTL, async () => {
+      const items = await this.servicesRepository.find({ where: { provider_id: id } });
+      return this.enrich(items);
+    });
   }
 
   // ✅ Update a service
@@ -100,7 +124,9 @@ export class ServicesService {
     const service = await this.servicesRepository.findOne({ where: { id } });
     if (!service) throw new NotFoundException(`Service with ID ${id} not found`);
     Object.assign(service, updateServiceDto);
-    return await this.servicesRepository.save(service);
+    const saved = await this.servicesRepository.save(service);
+    await this.invalidateCache();
+    return saved;
   }
 
   // ✅ Count services
@@ -114,6 +140,7 @@ export class ServicesService {
     if (result.affected === 0) {
       throw new NotFoundException(`Service with ID ${id} not found`);
     }
+    await this.invalidateCache();
     return { message: `Service with ID ${id} deleted successfully` };
   }
 }

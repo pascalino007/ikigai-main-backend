@@ -73,10 +73,24 @@ export class MiServicesController {
     return this.service.markOrderDelivered(id);
   }
 
+  @Post('order-bulk')
+  async orderBulk(
+    @Body()
+    body: {
+      miServiceIds: number[];
+      shopId: number;
+      userId: number;
+      paymentProvider?: 'kkiapay' | 'wallet';
+    },
+  ) {
+    const { miServiceIds, shopId, userId, paymentProvider } = body;
+    return this.service.initiateBulkPurchase(miServiceIds, shopId, userId, paymentProvider);
+  }
+
   @Post(':id/order')
   async order(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { shopId: number; userId: number; paymentProvider?: 'kkiapay' | 'stripe' },
+    @Body() body: { shopId: number; userId: number; paymentProvider?: 'kkiapay' | 'stripe' | 'wallet' },
   ) {
     const { shopId, userId, paymentProvider } = body;
     return this.service.initiatePurchase(id, shopId, userId, paymentProvider);

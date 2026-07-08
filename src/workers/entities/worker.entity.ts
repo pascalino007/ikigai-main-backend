@@ -42,6 +42,14 @@ export class Worker {
   @Column({ default: true })
   is_active: boolean;
 
+  /**
+   * Live availability of the worker:
+   *  - 'libre'  (free)  → idle, can take a booking
+   *  - 'occupé' (busy)  → currently serving a booking (checked in, not yet out)
+   */
+  @Column({ default: 'libre' })
+  status: string;
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -32,6 +32,18 @@ export class ShopsController {
     return { count };
   }
 
+  // ✅ Most-visited shops leaderboard (dashboard)
+  @Get('stats/most-visited')
+  async mostVisited(@Query('limit') limit?: string): Promise<Shops[]> {
+    return await this.shopsService.findMostVisited(limit ? parseInt(limit, 10) : 10);
+  }
+
+  // ✅ Record a client visit (called by the mobile app when a shop is opened)
+  @Post(':id/visit')
+  async recordVisit(@Param('id', ParseIntPipe) id: number): Promise<{ id: number; views: number }> {
+    return await this.shopsService.recordVisit(id);
+  }
+
   // ✅ Get all shops, optionally filtered by grade (basic|pro|elite)
   @Get()
   async findAll(@Query('grade') grade?: string): Promise<Shops[]> {

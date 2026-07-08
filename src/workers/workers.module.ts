@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Worker } from './entities/worker.entity';
 import { WorkerSchedule } from './entities/worker-schedule.entity';
 import { WorkerException } from './entities/worker-exception.entity';
+import { WorkerBusyPeriod } from './entities/worker-busy-period.entity';
 import { Bookings } from '../client/bookings/bookings.entity';
 import { Services } from '../services/services.entity';
 import { Shops } from '../shops/shop.entity';
@@ -17,6 +18,7 @@ import { WorkersController } from './workers.controller';
       Worker,
       WorkerSchedule,
       WorkerException,
+      WorkerBusyPeriod,
       Bookings,
       Services,
       Shops,

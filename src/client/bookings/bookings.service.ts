@@ -2,9 +2,10 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, In } from 'typeorm';
+import { Repository, Between, In, DataSource } from 'typeorm';
 import { Bookings } from './bookings.entity';
 import { Services } from '../../services/services.entity';
 import { Shops } from '../../shops/shop.entity';
@@ -28,6 +29,7 @@ export class BookingsService {
     @InjectRepository(Worker)
     private readonly workerRepo: Repository<Worker>,
     private readonly proWalletService: ProWalletService,
+    private readonly dataSource: DataSource,
   ) {}
 
   // ── helpers ──
@@ -57,6 +59,7 @@ export class BookingsService {
       service_image_url: service?.imageurl ?? null,
       client_name: user ? `${user.firstname ?? ''} ${user.lastname ?? ''}`.trim() || null : null,
       client_phone: user?.phone ?? null,
+      client_image_url: user?.image ?? null,
       shop_name: shop?.name ?? null,
       worker_name: worker ? `${worker.first_name ?? ''} ${worker.last_name ?? ''}`.trim() || null : null,
       service: service
@@ -89,6 +92,7 @@ export class BookingsService {
             lastname: user.lastname,
             phone: user.phone,
             email: user.email,
+            image: user.image,
           }
         : null,
     };
@@ -180,48 +184,85 @@ export class BookingsService {
 
     booking.booking_date = newDate;
     booking.booking_time = new Date(`${newDate}T${newTime}:00`);
+    // Issue a fresh single-use check-in token so any previously shown QR is void.
+    booking.qr_checkin_token = this.generateToken();
     await this.bookingRepo.save(booking);
     return this.enrichBooking(booking);
   }
 
   // ── QR check-in (provider scans client QR → start service) ──
 
-  async qrCheckin(token: string) {
-    const booking = await this.bookingRepo.findOne({
-      where: { qr_checkin_token: token },
-    });
-    if (!booking) throw new NotFoundException('Invalid check-in QR code');
-    if (booking.booking_status !== BookingStatus.CONFIRMED) {
-      throw new BadRequestException(
-        `Booking is not in confirmed state (current: ${booking.booking_status})`,
-      );
-    }
+  async qrCheckin(token: string, authUserId: number) {
+    const booking = await this.dataSource.transaction(async (manager) => {
+      // Lock the row so a double-scan can't transition it twice.
+      const b = await manager.findOne(Bookings, {
+        where: { qr_checkin_token: token },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!b) throw new NotFoundException('Invalid check-in QR code');
 
-    booking.booking_status = BookingStatus.IN_SERVICE;
-    booking.checked_in_at = new Date();
-    // generate the checkout token now so provider can display it
-    booking.qr_checkout_token = this.generateToken();
-    await this.bookingRepo.save(booking);
+      // Authorization: only the booking's shop owner may check it in.
+      const shop = await manager.findOne(Shops, { where: { id: b.provider_id } });
+      if (!shop || shop.user_id !== authUserId) {
+        throw new ForbiddenException('You are not allowed to check in this booking');
+      }
+
+      if (b.booking_status !== BookingStatus.CONFIRMED) {
+        throw new BadRequestException(
+          `Booking is not in confirmed state (current: ${b.booking_status})`,
+        );
+      }
+
+      b.booking_status = BookingStatus.IN_SERVICE;
+      b.checked_in_at = new Date();
+      // Generate the checkout token now; consume the check-in token (single-use).
+      b.qr_checkout_token = this.generateToken();
+      b.qr_checkin_token = null;
+      await manager.save(Bookings, b);
+
+      // The assigned worker is now serving a client → mark them busy.
+      if (b.worker_id) {
+        await manager.update(Worker, b.worker_id, { status: 'occupé' });
+      }
+      return b;
+    });
+
     return this.enrichBooking(booking);
   }
 
   // ── QR check-out (client scans provider QR → end service) ──
 
-  async qrCheckout(token: string) {
-    const booking = await this.bookingRepo.findOne({
-      where: { qr_checkout_token: token },
-    });
-    if (!booking) throw new NotFoundException('Invalid check-out QR code');
-    if (booking.booking_status !== BookingStatus.IN_SERVICE) {
-      throw new BadRequestException(
-        `Booking is not in IN_SERVICE state (current: ${booking.booking_status})`,
-      );
-    }
+  async qrCheckout(token: string, authUserId: number) {
+    const booking = await this.dataSource.transaction(async (manager) => {
+      const b = await manager.findOne(Bookings, {
+        where: { qr_checkout_token: token },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!b) throw new NotFoundException('Invalid check-out QR code');
 
-    booking.booking_status = BookingStatus.DONE;
-    booking.checked_out_at = new Date();
-    await this.bookingRepo.save(booking);
-    // Wallet is credited automatically by BookingsSubscriber
+      // Authorization: only the client who owns the booking may check it out.
+      if (b.user_id !== authUserId) {
+        throw new ForbiddenException('You are not allowed to check out this booking');
+      }
+
+      if (b.booking_status !== BookingStatus.IN_SERVICE) {
+        throw new BadRequestException(
+          `Booking is not in IN_SERVICE state (current: ${b.booking_status})`,
+        );
+      }
+
+      b.booking_status = BookingStatus.DONE;
+      b.checked_out_at = new Date();
+      b.qr_checkout_token = null; // single-use
+      await manager.save(Bookings, b);
+
+      // Service finished → the worker is free again.
+      if (b.worker_id) {
+        await manager.update(Worker, b.worker_id, { status: 'libre' });
+      }
+      return b;
+    });
+    // Wallet is credited automatically by BookingsSubscriber (on the save above).
 
     return this.enrichBooking(booking);
   }
@@ -325,6 +366,74 @@ export class BookingsService {
       data: await this.enrichBookings(bookings),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  /**
+   * "Ma clientèle": every client who has booked with this provider, with their
+   * bookings, total revenue (completed bookings) and last booking.
+   */
+  async getClientele(provider_id: number): Promise<any[]> {
+    const bookings = await this.bookingRepo.find({
+      where: { provider_id },
+      order: { booking_date: 'DESC', booking_time: 'DESC' },
+    });
+    if (bookings.length === 0) return [];
+
+    const userIds = [...new Set(bookings.map((b) => b.user_id).filter(Boolean))];
+    const serviceIds = [...new Set(bookings.map((b) => b.service_id).filter(Boolean))];
+
+    const users = userIds.length
+      ? await this.userRepo.find({ where: { id: In(userIds) } })
+      : [];
+    const userById = new Map(users.map((u) => [u.id, u]));
+    const services = serviceIds.length
+      ? await this.serviceRepo.find({ where: { id: In(serviceIds) } })
+      : [];
+    const serviceNameById = new Map(services.map((s) => [s.id, s.name]));
+
+    const byUser = new Map<number, Bookings[]>();
+    for (const b of bookings) {
+      const arr = byUser.get(b.user_id) ?? [];
+      arr.push(b);
+      byUser.set(b.user_id, arr);
+    }
+
+    const result: any[] = [];
+    for (const [userId, list] of byUser) {
+      const user = userById.get(userId);
+      const clientName = user
+        ? `${user.firstname ?? ''} ${user.lastname ?? ''}`.trim()
+        : '';
+      const totalRevenue = list
+        .filter((b) => b.booking_status === BookingStatus.DONE)
+        .reduce((sum, b) => sum + (b.amount || 0), 0);
+      const last = list[0]; // list is sorted DESC
+
+      result.push({
+        user_id: userId,
+        client_name: clientName || `Client #${userId}`,
+        client_phone: user?.phone ?? null,
+        client_image_url: user?.image ?? null,
+        total_bookings: list.length,
+        total_revenue: totalRevenue,
+        currency: 'XOF',
+        last_booking_date: last?.booking_date ?? null,
+        bookings: list.map((b) => ({
+          id: b.id,
+          service_id: b.service_id,
+          service_name: serviceNameById.get(b.service_id) ?? null,
+          booking_date: b.booking_date,
+          booking_time: b.booking_time,
+          booking_status: b.booking_status,
+          amount: b.amount,
+          currency: b.currency,
+        })),
+      });
+    }
+
+    // Best clients first (highest revenue).
+    result.sort((a, b) => b.total_revenue - a.total_revenue);
+    return result;
   }
 
   async findOne(id: number) {

@@ -48,4 +48,9 @@ export class Users {
     @Column({ type: 'text', nullable: true })
     fcm_token: string | null;
 
+    /** Single active session: the id of the most recent login. Older sessions with
+     *  a different id are considered superseded. Not selected by default. */
+    @Column({ type: 'varchar', nullable: true, select: false })
+    active_session_id: string | null;
+
 }

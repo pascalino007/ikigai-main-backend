@@ -7,7 +7,10 @@ import {
   Param,
   Query,
   ParseIntPipe,
+  UseGuards,
+  Req,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { BookingsService } from './bookings.service';
 import { BookingCheckoutService } from './booking-checkout.service';
 import { InitiateBookingCheckoutDto } from './dtos/initiate-booking-checkout.dto';
@@ -60,15 +63,17 @@ export class BookingsController {
   }
 
   /** Provider scans client QR → start service */
+  @UseGuards(JwtAuthGuard)
   @Post('qr/checkin')
-  qrCheckin(@Body() body: { token: string }) {
-    return this.bookingService.qrCheckin(body.token);
+  qrCheckin(@Req() req: any, @Body() body: { token: string }) {
+    return this.bookingService.qrCheckin(body.token, req.user.id);
   }
 
   /** Client scans provider QR → end service */
+  @UseGuards(JwtAuthGuard)
   @Post('qr/checkout')
-  qrCheckout(@Body() body: { token: string }) {
-    return this.bookingService.qrCheckout(body.token);
+  qrCheckout(@Req() req: any, @Body() body: { token: string }) {
+    return this.bookingService.qrCheckout(body.token, req.user.id);
   }
 
   @Get('history/:user_id')
@@ -96,6 +101,11 @@ export class BookingsController {
   @Get()
   findAll(@Query() query: FindBookingsDto) {
     return this.bookingService.findAll(query);
+  }
+
+  @Get('provider/:provider_id/clientele')
+  providerClientele(@Param('provider_id', ParseIntPipe) provider_id: number) {
+    return this.bookingService.getClientele(provider_id);
   }
 
   @Get('provider/:provider_id')

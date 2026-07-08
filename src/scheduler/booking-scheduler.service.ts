@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Bookings } from '../client/bookings/bookings.entity';
 import { BookingStatus } from '../client/bookings/booking-status.constants';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class BookingSchedulerService {
@@ -12,6 +13,7 @@ export class BookingSchedulerService {
   constructor(
     @InjectRepository(Bookings)
     private readonly bookingRepo: Repository<Bookings>,
+    private readonly redis: RedisService,
   ) {}
 
   /**
@@ -21,6 +23,8 @@ export class BookingSchedulerService {
    */
   @Cron('*/15 * * * *')
   async markExpiredConfirmedBookings(): Promise<void> {
+    if (!(await this.redis.acquireLock('cron:mark-no-show', 50))) return;
+
     const now = new Date();
     // Build a datetime string for comparison against booking_date + booking_time
     const nowIso = now.toISOString();
@@ -65,6 +69,8 @@ export class BookingSchedulerService {
    */
   @Cron('0 * * * *')
   async cancelStalePendingBookings(): Promise<void> {
+    if (!(await this.redis.acquireLock('cron:cancel-stale', 50))) return;
+
     const cutoff = new Date(Date.now() - 30 * 60 * 1000); // 30 minutes ago
 
     const stale = await this.bookingRepo.find({

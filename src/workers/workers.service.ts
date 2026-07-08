@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Worker } from './entities/worker.entity';
 import { WorkerSchedule } from './entities/worker-schedule.entity';
 import { WorkerException } from './entities/worker-exception.entity';
+import { WorkerBusyPeriod } from './entities/worker-busy-period.entity';
 import { Bookings } from '../client/bookings/bookings.entity';
 import { Services } from '../services/services.entity';
 import { Shops } from '../shops/shop.entity';
@@ -41,7 +42,88 @@ export class WorkersService {
     private readonly usersRepo: Repository<Users>,
     @InjectRepository(ProOwnners)
     private readonly proOwnersRepo: Repository<ProOwnners>,
+    @InjectRepository(WorkerBusyPeriod)
+    private readonly busyRepo: Repository<WorkerBusyPeriod>,
   ) {}
+
+  // ─── BUSY PERIODS (manual "occupé" blocks) ──────────────────────────────
+
+  /** Mark a worker busy for a time window so clients can't book it. */
+  async addBusyPeriod(
+    workerId: number,
+    dto: { busy_date: string; start_time: string; end_time: string; reason?: string },
+  ): Promise<WorkerBusyPeriod> {
+    await this.findOne(workerId); // ensure exists
+    const period = this.busyRepo.create({
+      worker_id: workerId,
+      busy_date: dto.busy_date,
+      start_time: dto.start_time,
+      end_time: dto.end_time,
+      reason: dto.reason,
+    });
+    return this.busyRepo.save(period);
+  }
+
+  async removeBusyPeriod(id: number): Promise<void> {
+    await this.busyRepo.delete(id);
+  }
+
+  /** Busy periods for a worker, optionally filtered to a date (default: from today). */
+  async getBusyPeriods(workerId: number, date?: string): Promise<WorkerBusyPeriod[]> {
+    const where: Record<string, unknown> = { worker_id: workerId };
+    if (date) where.busy_date = date;
+    return this.busyRepo.find({ where, order: { busy_date: 'ASC', start_time: 'ASC' } });
+  }
+
+  /** Busy windows for a worker on a date, as time ranges that block booking slots. */
+  private async getBusyRangesForDate(
+    workerId: number,
+    date: string,
+  ): Promise<{ start: Date; end: Date }[]> {
+    const periods = await this.busyRepo.find({
+      where: { worker_id: workerId, busy_date: date },
+    });
+    return periods.map((p) => ({
+      start: new Date(`${date}T${p.start_time}:00`),
+      end: new Date(`${date}T${p.end_time}:00`),
+    }));
+  }
+
+  /** True if the worker has a busy period covering the current moment. */
+  private async isBusyNow(workerId: number): Promise<boolean> {
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const periods = await this.busyRepo.find({
+      where: { worker_id: workerId, busy_date: today },
+    });
+    return periods.some((p) => {
+      const s = this._timeToMinutes(p.start_time);
+      const e = this._timeToMinutes(p.end_time);
+      return nowMin >= s && nowMin < e;
+    });
+  }
+
+  /** Override each worker's live status to 'occupé' if a busy period is active now. */
+  private async applyBusyStatus(workers: Worker[]): Promise<void> {
+    const today = new Date().toISOString().slice(0, 10);
+    const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+    const ids = workers.map((w) => w.id).filter((id) => id > 0);
+    if (ids.length === 0) return;
+    const periods = await this.busyRepo.find({ where: { busy_date: today } });
+    const activeByWorker = new Set(
+      periods
+        .filter((p) => {
+          const s = this._timeToMinutes(p.start_time);
+          const e = this._timeToMinutes(p.end_time);
+          return nowMin >= s && nowMin < e;
+        })
+        .map((p) => p.worker_id),
+    );
+    for (const w of workers) {
+      if (activeByWorker.has(w.id)) w.status = 'occupé';
+    }
+  }
 
   // ─── CRUD ──────────────────────────────────────────────────────────────
 
@@ -83,7 +165,10 @@ export class WorkersService {
       where: { shop_id: shopId },
       relations: ['schedules', 'exceptions'],
     });
-    if (workers.length > 0) return workers;
+    if (workers.length > 0) {
+      await this.applyBusyStatus(workers);
+      return workers;
+    }
 
     // No workers → create a default "shop owner" worker
     const defaultWorker = await this._createDefaultWorker(shopId);
@@ -241,8 +326,11 @@ export class WorkersService {
       return []; // day off
     }
 
-    // 2. Get existing bookings for this worker on this date
+    // 2. Get existing bookings for this worker on this date, plus any manual
+    //    busy periods (busy in real life) — both block slots.
     const existingBookings = await this.getWorkerBookingsForDate(workerId, date);
+    const busyRanges = await this.getBusyRangesForDate(workerId, date);
+    const blocked = [...existingBookings, ...busyRanges];
 
     // 3. Generate all possible slots
     const slots = this.generateSlots(
@@ -250,7 +338,7 @@ export class WorkersService {
       workingHours.end,
       durationMinutes,
       bufferMinutes,
-      existingBookings,
+      blocked,
     );
 
     const lastSlot = slots.length > 0 ? slots[slots.length - 1] : null;

@@ -1,0 +1,79 @@
+services:
+  api:
+    build: .
+    container_name: ikigai-api
+    restart: unless-stopped
+    ports:
+      - "${PORT:-4040}:4040"
+    # App secrets (KKIAPAY, Stripe, SPACES_*, MAIL_*, …) are read from .env.
+    # The infra vars in `environment` point at the compose services and override .env.
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 4040
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_SYNCHRONIZE: ${DB_SYNCHRONIZE:-true}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    container_name: ikigai-mysql
+    restart: unless-stopped
+    # The legacy `mysql` driver needs native_password (MySQL 8 defaults to caching_sha2).
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-kabadelivery}
+      MYSQL_DATABASE: ${DB_DATABASE:-ikigaidb}
+    ports:
+      - "${DB_EXPOSE_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_PASSWORD:-kabadelivery}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    container_name: ikigai-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_EXPOSE_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  phpmyadmin:
+    image: phpmyadmin:5
+    container_name: ikigai-phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      # Allow large SQL imports/exports from the UI.
+      UPLOAD_LIMIT: 256M
+    # Bound to localhost only — reach it via an SSH tunnel in production,
+    # never expose the DB admin UI to the public internet.
+    ports:
+      - "127.0.0.1:${PMA_EXPOSE_PORT:-8081}:80"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+  redis_data:

@@ -6,6 +6,7 @@ import { Transaction } from '../../transaction/transaction.entity';
 import { Shops } from '../../shops/shop.entity';
 import { Bookings } from '../../client/bookings/bookings.entity';
 import { Subscription } from '../../subscriptions/subscription.entity';
+import { BookingStatus } from '../../client/bookings/booking-status.constants';
 import { TransactionStatus, TransactionMotif } from '../../transaction/transaction.contants';
 
 @Injectable()
@@ -92,21 +93,151 @@ export class ProWalletService {
     });
   }
 
-  async creditForBooking(shopId: number, amount: number, label: string, transactionRef: string) {
-    const wallet = await this.getOrCreateWallet(shopId);
-    const before = wallet.balance;
-    wallet.balance += amount;
-    await this.walletRepo.save(wallet);
-    const shop = await this.shopsRepo.findOne({ where: { id: shopId } });
-    const tx = this.transactionRepo.create({
-      label, fromUserId: 0, toUserId: shop?.user_id ?? 0,
-      amount, currency: 'XOF', status: 1, transactionMotifId: 9,
-      transactionRef, paymentMethod: 'system', paymentProvider: 'system',
-      externalPaymentId: null, balanceBefore: before,
-      balanceAfter: wallet.balance, bookingId: null,
+  /**
+   * Atomically credit a shop wallet and record a ledger transaction.
+   *
+   * The whole operation runs inside a single DB transaction with a
+   * pessimistic write-lock on the wallet row, so concurrent credits to the
+   * same shop are serialized (prevents the lost-update race where two
+   * bookings completing at once would overwrite each other's balance).
+   *
+   * Idempotency is enforced two ways:
+   *  - `transactionRef` is UNIQUE at the DB level, so a duplicate insert fails.
+   *  - we no-op early if a transaction with the same ref already exists.
+   */
+  private async applyWalletCredit(
+    shopId: number,
+    amount: number,
+    label: string,
+    opts: { transactionRef: string; bookingId?: number | null; motif: number },
+  ): Promise<ProWallet> {
+    if (!amount || amount <= 0) throw new BadRequestException('Invalid credit amount');
+
+    return this.dataSource.transaction(async (manager) => {
+      // Lock the wallet first so all credits to this shop are serialized.
+      let wallet = await manager.findOne(ProWallet, {
+        where: { shop_id: shopId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!wallet) {
+        wallet = manager.create(ProWallet, { shop_id: shopId, balance: 0 });
+        await manager.save(ProWallet, wallet);
+      }
+
+      // Idempotency: never apply the same credit twice.
+      const existing = await manager.findOne(Transaction, {
+        where: { transactionRef: opts.transactionRef },
+      });
+      if (existing) return wallet;
+
+      const before = wallet.balance;
+      wallet.balance += amount;
+      await manager.save(ProWallet, wallet);
+
+      const shop = await manager.findOne(Shops, { where: { id: shopId } });
+      const tx = manager.create(Transaction, {
+        label,
+        fromUserId: 0,
+        toUserId: shop?.user_id ?? 0,
+        amount,
+        currency: 'XOF',
+        status: TransactionStatus.SUCCESS,
+        transactionMotifId: opts.motif,
+        transactionRef: opts.transactionRef,
+        paymentMethod: 'system',
+        paymentProvider: 'system',
+        externalPaymentId: null,
+        balanceBefore: before,
+        balanceAfter: wallet.balance,
+        booking: opts.bookingId ? ({ id: opts.bookingId } as Bookings) : null,
+        metadata: { shopId, bookingId: opts.bookingId ?? null },
+      });
+      await manager.save(Transaction, tx);
+      return wallet;
     });
-    await this.transactionRepo.save(tx);
-    return wallet;
+  }
+
+  /**
+   * Credit a provider's wallet for a completed booking.
+   * Idempotent per booking: a deterministic ref (`BOOKING-PAYOUT-<id>`) means a
+   * booking can only ever be credited once, even if the completion event fires
+   * twice or is retried.
+   */
+  async creditForBooking(
+    shopId: number,
+    amount: number,
+    label: string,
+    bookingId: number,
+  ): Promise<ProWallet> {
+    return this.applyWalletCredit(shopId, amount, label, {
+      transactionRef: `BOOKING-PAYOUT-${bookingId}`,
+      bookingId,
+      motif: TransactionMotif.PROVIDER_PAYOUT,
+    });
+  }
+
+  /** Manual/admin credit with a caller-supplied (unique) reference. */
+  async creditManual(
+    shopId: number,
+    amount: number,
+    label: string,
+    transactionRef: string,
+  ): Promise<ProWallet> {
+    return this.applyWalletCredit(shopId, amount, label, {
+      transactionRef,
+      motif: TransactionMotif.PROVIDER_PAYOUT,
+    });
+  }
+
+  /**
+   * One-off backfill: ensure every completed booking has its provider payout.
+   *
+   * Because {@link creditForBooking} is idempotent (keyed on booking id), this
+   * is safe to run repeatedly — bookings already credited are skipped and only
+   * genuinely-missing payouts are applied. Pass `dryRun` to report what would
+   * be credited without touching any wallet.
+   */
+  async reconcileBookingCredits(opts?: { shopId?: number; dryRun?: boolean }) {
+    const where: Record<string, unknown> = { booking_status: BookingStatus.DONE };
+    if (opts?.shopId) where.provider_id = opts.shopId;
+
+    const doneBookings = await this.bookingRepo.find({ where });
+
+    let scanned = 0;
+    let credited = 0;
+    let amountCredited = 0;
+    const creditedBookingIds: number[] = [];
+
+    for (const b of doneBookings) {
+      if (!b.provider_id || !(b.amount > 0)) continue;
+      scanned++;
+
+      const already = await this.transactionRepo.findOne({
+        where: { transactionRef: `BOOKING-PAYOUT-${b.id}` },
+      });
+      if (already) continue;
+
+      if (!opts?.dryRun) {
+        await this.creditForBooking(
+          b.provider_id,
+          b.amount,
+          `Booking #${b.id} completed (reconciled)`,
+          b.id,
+        );
+      }
+      credited++;
+      amountCredited += b.amount;
+      creditedBookingIds.push(b.id);
+    }
+
+    return {
+      dryRun: !!opts?.dryRun,
+      scanned,
+      alreadyCredited: scanned - credited,
+      credited,
+      amountCredited,
+      creditedBookingIds,
+    };
   }
 
   async paySubscriptionFromWallet(

@@ -4,6 +4,7 @@ import { Repository, In } from 'typeorm';
 import { ClientWallet } from './client_wallet.entity';
 import { Transaction } from '../../transaction/transaction.entity';
 import { Users } from '../../users/user.entity';
+import { Services } from '../../services/services.entity';
 
 @Injectable()
 export class ClientWalletService {
@@ -14,6 +15,8 @@ export class ClientWalletService {
     private readonly transactionRepo: Repository<Transaction>,
     @InjectRepository(Users)
     private readonly usersRepo: Repository<Users>,
+    @InjectRepository(Services)
+    private readonly servicesRepo: Repository<Services>,
   ) {}
 
   /** Creates wallet if missing (e.g. users registered before wallet auto-create). */
@@ -45,12 +48,37 @@ export class ClientWalletService {
   async listTransactionsForUser(
     clientId: number,
     limit = 50,
-  ): Promise<Transaction[]> {
+  ): Promise<any[]> {
     await this.getOrCreateWallet(clientId);
-    return this.transactionRepo.find({
+    const txs = await this.transactionRepo.find({
       where: [{ fromUserId: clientId }, { toUserId: clientId }],
       order: { createdAt: 'DESC' },
       take: Math.min(Math.max(limit, 1), 100),
+      relations: ['booking'],
+    });
+
+    // Resolve the service (name + image) behind each booking-linked transaction,
+    // so the wallet can show the service instead of a generic "Booking 77" label.
+    const serviceIds = Array.from(
+      new Set(
+        txs
+          .map((t) => t.booking?.service_id)
+          .filter((id): id is number => typeof id === 'number' && id > 0),
+      ),
+    );
+    const services = serviceIds.length
+      ? await this.servicesRepo.find({ where: { id: In(serviceIds) } })
+      : [];
+    const serviceMap = new Map(services.map((s) => [s.id, s]));
+
+    return txs.map((t) => {
+      const svc = t.booking?.service_id ? serviceMap.get(t.booking.service_id) : undefined;
+      const { booking, ...rest } = t;
+      return {
+        ...rest,
+        serviceName: svc?.name ?? null,
+        serviceImage: svc?.imageurl ?? null,
+      };
     });
   }
 

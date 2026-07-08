@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { Shops } from '../shops/shop.entity';
 import { ShopsService } from '../shops/shops.service';
 import { MailService } from '../mail/mail.service';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class ShopSchedulerService {
@@ -15,6 +16,7 @@ export class ShopSchedulerService {
     private readonly shopsRepository: Repository<Shops>,
     private readonly shopsService: ShopsService,
     private readonly mailService: MailService,
+    private readonly redis: RedisService,
   ) {}
 
   /**
@@ -26,6 +28,9 @@ export class ShopSchedulerService {
    */
   @Cron('* * * * *')
   async checkShopStatuses(): Promise<void> {
+    // Only one instance runs this tick (lock auto-expires before the next run).
+    if (!(await this.redis.acquireLock('cron:shop-status', 50))) return;
+
     let shops: Shops[];
     try {
       shops = await this.shopsRepository.find({ where: { is_active: true } });

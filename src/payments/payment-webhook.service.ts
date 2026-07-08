@@ -75,6 +75,8 @@ export class PaymentWebhookService {
           for (const txn of bulkTxns) {
             if (txn.transactionMotifId === TransactionMotif.BOOKING_PAYMENT) {
               await this.applyBookingPaymentEvent(manager, txn, event);
+            } else if (txn.transactionMotifId === TransactionMotif.MI_SERVICE) {
+              await this.applyMiServiceEvent(manager, txn, event);
             }
           }
           return;
@@ -243,7 +245,10 @@ export class PaymentWebhookService {
         return; // idempotent
       }
       txn.status = TransactionStatus.SUCCESS;
-      if (event.externalPaymentId) {
+      // `externalPaymentId` is UNIQUE; in a bulk payment several transactions
+      // share one external id, so only stamp it on standalone (non-bulk) ones.
+      const canSetExternal = !txn.bulkRef && event.externalPaymentId;
+      if (canSetExternal) {
         txn.externalPaymentId = event.externalPaymentId;
       }
       await manager.save(Transaction, txn);
@@ -272,7 +277,7 @@ export class PaymentWebhookService {
         return;
       }
       txn.status = TransactionStatus.FAILED;
-      if (event.externalPaymentId) {
+      if (!txn.bulkRef && event.externalPaymentId) {
         txn.externalPaymentId = event.externalPaymentId;
       }
       await manager.save(Transaction, txn);

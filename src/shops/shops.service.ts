@@ -78,21 +78,20 @@ export class ShopsService {
   //   - If provider manually set 'closed', always respect it.
   //   - If status is 'ouvert'/'open' (default), auto-close outside working hours.
   computeEffectiveStatus(shop: Shops): string {
-    const manualStatus = (shop.status || 'ouvert').toLowerCase().trim();
+    // A shop is only ever OPEN or CLOSED, driven automatically by its working
+    // hours (busy/free is now a per-worker concept, not a shop one).
+    // A manual hard-close is still respected.
+    const manualStatus = (shop.status || '').toLowerCase().trim();
+    if (manualStatus === 'closed') return 'closed';
 
-    // Provider explicitly set a non-default status → respect it
-    if (manualStatus === 'occupé' || manualStatus === 'free' || manualStatus === 'closed') {
-      return shop.status;
-    }
-
-    // From here, status is 'ouvert' or 'open' → check working hours
     const now = new Date();
     const dayNames = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
     // Use local time so it matches the server's timezone (should align with shop locale)
     const todayName = dayNames[now.getDay()];
 
+    // No hours configured → treat as open.
     if (!shop.workingHours || !Array.isArray(shop.workingHours) || shop.workingHours.length === 0) {
-      return shop.status || 'ouvert';
+      return 'open';
     }
 
     const todayEntry = shop.workingHours.find(
@@ -100,19 +99,13 @@ export class ShopsService {
     );
 
     // No entry for today → assume open (provider didn't specify hours for this day)
-    if (!todayEntry) {
-      return shop.status || 'ouvert';
-    }
+    if (!todayEntry) return 'open';
 
     const hoursStr = todayEntry[1].trim();
-    if (hoursStr.toLowerCase() === 'fermé' || hoursStr === '-') {
-      return 'closed';
-    }
+    if (hoursStr.toLowerCase() === 'fermé' || hoursStr === '-') return 'closed';
 
     const timeMatch = hoursStr.match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
-    if (!timeMatch) {
-      return shop.status || 'ouvert';
-    }
+    if (!timeMatch) return 'open';
 
     const [, openH, openM, closeH, closeM] = timeMatch.map(Number);
     const openMinutes = openH * 60 + openM;
@@ -120,11 +113,8 @@ export class ShopsService {
     // Use local hours so it matches the shop's timezone
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
-    if (currentMinutes < openMinutes || currentMinutes >= closeMinutes) {
-      return 'closed';
-    }
-
-    return shop.status || 'ouvert';
+    if (currentMinutes < openMinutes || currentMinutes >= closeMinutes) return 'closed';
+    return 'open';
   }
 
 // ✅ (Optional) Get all shops, optionally filtered by grade
@@ -135,6 +125,26 @@ export class ShopsService {
     } else {
       shops = await this.shopsRepository.find();
     }
+    for (const shop of shops) {
+      shop.status = this.computeEffectiveStatus(shop) as any;
+    }
+    return shops;
+  }
+
+  // ✅ Record a client visit — atomic increment so concurrent visits don't race
+  async recordVisit(id: number): Promise<{ id: number; views: number }> {
+    const shop = await this.shopsRepository.findOne({ where: { id }, select: ['id', 'views'] });
+    if (!shop) throw new NotFoundException(`Shop with ID ${id} not found`);
+    await this.shopsRepository.increment({ id }, 'views', 1);
+    return { id, views: (shop.views ?? 0) + 1 };
+  }
+
+  // ✅ Most-visited shops (for the dashboard leaderboard), with computed open/closed status
+  async findMostVisited(limit = 10): Promise<Shops[]> {
+    const shops = await this.shopsRepository.find({
+      order: { views: 'DESC' },
+      take: Math.max(1, Math.min(limit, 100)),
+    });
     for (const shop of shops) {
       shop.status = this.computeEffectiveStatus(shop) as any;
     }
