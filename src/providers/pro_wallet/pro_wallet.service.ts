@@ -149,7 +149,7 @@ export class ProWalletService {
         externalPaymentId: null,
         balanceBefore: before,
         balanceAfter: wallet.balance,
-        booking: opts.bookingId ? ({ id: opts.bookingId } as Bookings) : null,
+        booking: opts.bookingId ? ({ id: opts.bookingId } as Bookings) : undefined,
         metadata: { shopId, bookingId: opts.bookingId ?? null },
       });
       await manager.save(Transaction, tx);

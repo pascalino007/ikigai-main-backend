@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import type { StringValue } from 'ms';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 /**
@@ -11,7 +12,9 @@ import { JwtAuthGuard } from './jwt-auth.guard';
   imports: [
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'yourSecretKey',
-      signOptions: { expiresIn: process.env.JWT_EXPIRES_IN || '7d' },
+      signOptions: {
+        expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as StringValue,
+      },
     }),
   ],
   providers: [JwtAuthGuard],

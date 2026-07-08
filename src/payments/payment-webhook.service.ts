@@ -249,7 +249,7 @@ export class PaymentWebhookService {
       // share one external id, so only stamp it on standalone (non-bulk) ones.
       const canSetExternal = !txn.bulkRef && event.externalPaymentId;
       if (canSetExternal) {
-        txn.externalPaymentId = event.externalPaymentId;
+        txn.externalPaymentId = event.externalPaymentId ?? null;
       }
       await manager.save(Transaction, txn);
 
