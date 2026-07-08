@@ -31,6 +31,7 @@ export class ShopSchedulerService {
     // Only one instance runs this tick (lock auto-expires before the next run).
     if (!(await this.redis.acquireLock('cron:shop-status', 50))) return;
 
+    const startedAt = Date.now();
     let shops: Shops[];
     try {
       shops = await this.shopsRepository.find({ where: { is_active: true } });
@@ -38,6 +39,9 @@ export class ShopSchedulerService {
       this.logger.error(`Failed to load shops for status check: ${err.message}`);
       return;
     }
+
+    let opened = 0;
+    let closed = 0;
 
     for (const shop of shops) {
       const manualStatus = (shop.status || 'ouvert').toLowerCase().trim();
@@ -59,12 +63,28 @@ export class ShopSchedulerService {
       if (isNowOpen && !wasOpen) {
         shop.auto_status = computed;
         await this.shopsRepository.save(shop);
+        opened++;
+        this.logger.log(`Shop #${shop.id} "${shop.name}" auto-opened`);
         await this.notifyOpen(shop);
       } else if (!isNowOpen && wasOpen) {
         shop.auto_status = 'closed';
         await this.shopsRepository.save(shop);
+        closed++;
+        this.logger.log(`Shop #${shop.id} "${shop.name}" auto-closed`);
         await this.notifyClose(shop);
       }
+    }
+
+    // Loud line only when something changed; a debug heartbeat otherwise so
+    // the every-minute tick doesn't flood the logs.
+    if (opened || closed) {
+      this.logger.log(
+        `Status tick: ${opened} opened, ${closed} closed (${shops.length} active shops, ${Date.now() - startedAt}ms)`,
+      );
+    } else {
+      this.logger.debug(
+        `Status tick: no changes (${shops.length} active shops, ${Date.now() - startedAt}ms)`,
+      );
     }
   }
 

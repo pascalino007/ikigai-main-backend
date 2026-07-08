@@ -110,4 +110,52 @@ export class EnrollersService {
     delete (saved as any).password;
     return saved;
   }
+
+  /**
+   * admin can manage any enroller; a manager only the enrollers under them
+   * (superior_id === the manager's id).
+   */
+  private async assertCanManage(id: number, actorRole: string, actorId: number): Promise<Users> {
+    const enroller = await this.usersRepo.findOne({ where: { id, role: 'enroller' } });
+    if (!enroller) throw new NotFoundException(`Enroller #${id} not found`);
+    const isAdmin = actorRole === 'admin';
+    const isOwnManager = actorRole === 'manager' && enroller.superior_id === actorId;
+    if (!isAdmin && !isOwnManager) {
+      throw new ForbiddenException("Only admin or the enroller's manager can modify this enroller");
+    }
+    return enroller;
+  }
+
+  /** Update an enroller's information (admin, or the manager they report to). */
+  async update(id: number, dto: Partial<CreateEnrollerDto>, actorRole: string, actorId: number) {
+    const enroller = await this.assertCanManage(id, actorRole, actorId);
+
+    if (dto.email) {
+      const email = dto.email.toLowerCase().trim();
+      const existing = await this.usersRepo.findOne({ where: { email } });
+      if (existing && existing.id !== id) throw new BadRequestException('Email already in use');
+      enroller.email = email;
+    }
+    if (dto.firstname !== undefined) enroller.firstname = dto.firstname;
+    if (dto.lastname !== undefined) enroller.lastname = dto.lastname;
+    if (dto.phone !== undefined) enroller.phone = dto.phone;
+    if (dto.image !== undefined) enroller.image = dto.image;
+    if (dto.password) {
+      if (dto.password.trim().length < 4) {
+        throw new BadRequestException('Password must be at least 4 characters');
+      }
+      enroller.password = await bcrypt.hash(dto.password, 10);
+    }
+
+    const saved = await this.usersRepo.save(enroller);
+    delete (saved as any).password;
+    return saved;
+  }
+
+  /** Delete an enroller (admin, or the manager they report to). */
+  async remove(id: number, actorRole: string, actorId: number) {
+    const enroller = await this.assertCanManage(id, actorRole, actorId);
+    await this.usersRepo.remove(enroller);
+    return { message: 'Enroller deleted' };
+  }
 }

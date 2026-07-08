@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Body, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, ParseIntPipe } from '@nestjs/common';
 import { EnrollersService, CreateEnrollerDto } from './enrollers.service';
 
 @Controller('enrollers')
@@ -39,5 +39,31 @@ export class EnrollersController {
   @Patch(':id/toggle-active')
   toggleActive(@Param('id', ParseIntPipe) id: number) {
     return this.enrollersService.toggleActive(id);
+  }
+
+  /**
+   * PATCH /enrollers/:id — edit an enroller.
+   * Body: { ...fields, updaterRole: string, updaterId: number }
+   * admin edits any enroller; a manager only the enrollers under them.
+   */
+  @Patch(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: Partial<CreateEnrollerDto> & { updaterRole: string; updaterId: number },
+  ) {
+    const { updaterRole, updaterId, ...dto } = body;
+    return this.enrollersService.update(id, dto, updaterRole, Number(updaterId));
+  }
+
+  /**
+   * DELETE /enrollers/:id — same permission rule as update.
+   * Body: { updaterRole: string, updaterId: number }
+   */
+  @Delete(':id')
+  remove(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { updaterRole: string; updaterId: number },
+  ) {
+    return this.enrollersService.remove(id, body?.updaterRole, Number(body?.updaterId));
   }
 }

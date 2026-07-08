@@ -84,10 +84,33 @@ export class ShopsService {
     const manualStatus = (shop.status || '').toLowerCase().trim();
     if (manualStatus === 'closed') return 'closed';
 
-    const now = new Date();
-    const dayNames = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-    // Use local time so it matches the server's timezone (should align with shop locale)
-    const todayName = dayNames[now.getDay()];
+    // Shop hours are local to the shops' market (Bénin/Togo, UTC+0/+1); the
+    // server may run in UTC, so compute "now" in the configured timezone
+    // instead of server-local time.
+    const timeZone = process.env.SHOP_TIMEZONE || 'Africa/Porto-Novo';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      weekday: 'long',
+      hour: 'numeric',
+      minute: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(new Date());
+    const part = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+    const weekdayEn = part('weekday'); // "Monday", …
+    const currentMinutes = parseInt(part('hour'), 10) * 60 + parseInt(part('minute'), 10);
+
+    // Working-hours rows store the day in English (dashboard) or French
+    // (mobile/legacy data) — accept both.
+    const frByEn: Record<string, string> = {
+      Sunday: 'Dimanche',
+      Monday: 'Lundi',
+      Tuesday: 'Mardi',
+      Wednesday: 'Mercredi',
+      Thursday: 'Jeudi',
+      Friday: 'Vendredi',
+      Saturday: 'Samedi',
+    };
+    const todayNames = [weekdayEn.toLowerCase(), (frByEn[weekdayEn] || '').toLowerCase()];
 
     // No hours configured → treat as open.
     if (!shop.workingHours || !Array.isArray(shop.workingHours) || shop.workingHours.length === 0) {
@@ -95,7 +118,7 @@ export class ShopsService {
     }
 
     const todayEntry = shop.workingHours.find(
-      (wh) => wh && wh.length >= 2 && wh[0].toLowerCase() === todayName.toLowerCase(),
+      (wh) => wh && wh.length >= 2 && todayNames.includes(String(wh[0]).toLowerCase().trim()),
     );
 
     // No entry for today → assume open (provider didn't specify hours for this day)
@@ -110,8 +133,6 @@ export class ShopsService {
     const [, openH, openM, closeH, closeM] = timeMatch.map(Number);
     const openMinutes = openH * 60 + openM;
     const closeMinutes = closeH * 60 + closeM;
-    // Use local hours so it matches the shop's timezone
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
     if (currentMinutes < openMinutes || currentMinutes >= closeMinutes) return 'closed';
     return 'open';
