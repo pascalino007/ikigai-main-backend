@@ -212,29 +212,23 @@ export class UsersService {
     const sent = await this.mailService.sendMail({ to: email, subject, html: otpEmailTemplate(otp, purpose) });
     if (!sent) {
       this.logger.warn(`Failed to send OTP email to ${email}`);
-      // In production the email is the only way to get the code — pretending
-      // it was sent would strand the user. In dev, devOtp covers the flow.
-      if (process.env.NODE_ENV === 'production') {
-        throw new ServiceUnavailableException(
-          "Impossible d'envoyer l'email de vérification. Veuillez réessayer plus tard.",
-        );
-      }
+      // The recipient's inbox is the ONLY channel for the code — never claim
+      // "sent" when it wasn't.
+      throw new ServiceUnavailableException(
+        "Impossible d'envoyer l'email de vérification. Veuillez réessayer plus tard.",
+      );
     }
   }
 
-  private devOtp(otp: string) {
-    return process.env.NODE_ENV === 'production' ? {} : { devOtp: otp };
-  }
-
   /** Step 1 of sign-up: email must be free; send a verification OTP. */
-  async requestRegisterOtp(email: string): Promise<{ success: boolean; message: string; devOtp?: string }> {
+  async requestRegisterOtp(email: string): Promise<{ success: boolean; message: string }> {
     if (!email) throw new BadRequestException('Email requis');
     const normalized = email.toLowerCase().trim();
     const existing = await this.usersRepository.findOne({ where: { email: normalized } });
     if (existing) throw new BadRequestException('Un compte existe déjà avec cet email');
     const otp = await this.generateAuthOtp(normalized, 'register');
     await this.sendAuthOtpEmail(normalized, otp, 'Code de vérification - Ikigai', 'vérification');
-    return { success: true, message: 'Un code de vérification a été envoyé à votre email', ...this.devOtp(otp) };
+    return { success: true, message: 'Un code de vérification a été envoyé à votre email' };
   }
 
   /** Step 2 of sign-up: verify OTP then create the account. */
@@ -300,7 +294,7 @@ export class UsersService {
     password: string,
     deviceId?: string,
     deviceToken?: string,
-  ): Promise<{ otpRequired: boolean; message?: string; accessToken?: string; sessionId?: string; user?: Users; shop?: Shops | null; devOtp?: string }> {
+  ): Promise<{ otpRequired: boolean; message?: string; accessToken?: string; sessionId?: string; user?: Users; shop?: Shops | null }> {
     const user = await this.validateCredentials(email, password);
     const normalized = user.email.toLowerCase().trim();
 
@@ -311,7 +305,7 @@ export class UsersService {
 
     const otp = await this.generateAuthOtp(normalized, 'login');
     await this.sendAuthOtpEmail(normalized, otp, 'Code de connexion - Ikigai', 'connexion');
-    return { otpRequired: true, message: 'Un code de connexion a été envoyé à votre email', ...this.devOtp(otp) };
+    return { otpRequired: true, message: 'Un code de connexion a été envoyé à votre email' };
   }
 
   /** Step 2 of login: verify OTP, issue the session, and optionally remember the device. */
@@ -499,7 +493,7 @@ export class UsersService {
     return { active, history: UsersService.otpHistory };
   }
 
-  async requestPasswordReset(email: string): Promise<{ success: boolean; message: string; devOtp?: string }> {
+  async requestPasswordReset(email: string): Promise<{ success: boolean; message: string }> {
     if (!email) throw new BadRequestException('Email is required');
     const normalized = email.toLowerCase().trim();
     const user = await this.usersRepository.findOne({ where: { email: normalized } });
@@ -527,22 +521,18 @@ export class UsersService {
       html,
     });
 
-    const isProd = process.env.NODE_ENV === 'production';
     if (!sent) {
       this.logger.warn(`Failed to send reset OTP email to ${normalized}`);
-      // Don't claim "sent" when it wasn't: in prod the email is the only
-      // channel for the code (devOtp keeps the flow usable in dev).
-      if (isProd) {
-        throw new ServiceUnavailableException(
-          "Impossible d'envoyer l'email de réinitialisation. Veuillez réessayer plus tard.",
-        );
-      }
+      // The account's inbox is the ONLY channel for the code — never claim
+      // "sent" when it wasn't, and never expose the code in the response.
+      throw new ServiceUnavailableException(
+        "Impossible d'envoyer l'email de réinitialisation. Veuillez réessayer plus tard.",
+      );
     }
 
     return {
       success: true,
       message: 'A verification code has been sent to your email',
-      ...(isProd ? {} : { devOtp: otp }),
     };
   }
 
