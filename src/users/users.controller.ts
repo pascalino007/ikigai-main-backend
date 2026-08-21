@@ -152,7 +152,7 @@ export class UsersController {
     return await this.usersService.remove(id);
   }
 
-  // ✅ Upload / replace user profile image (DigitalOcean Spaces)
+  // ✅ Upload / replace user profile image (Backblaze B2)
   @Post(':id/profile-image')
   @UseInterceptors(FileInterceptor('image'))
   async uploadProfileImage(

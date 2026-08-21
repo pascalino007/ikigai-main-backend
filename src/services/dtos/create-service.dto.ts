@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsOptional } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsNumber } from 'class-validator';
 
 export class CreateServiceDto {
   @IsNotEmpty()
@@ -34,7 +34,7 @@ export class CreateServiceDto {
   imageurl?: string;
 
   @IsOptional()
-  @IsString()
+  @IsNumber()
   provider_id?: number;
 
   @IsOptional()

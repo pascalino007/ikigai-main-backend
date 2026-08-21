@@ -286,6 +286,9 @@ export class ProWalletService {
       });
       await manager.save(Transaction, tx);
 
+      const expiresAt = interval === 'year'
+        ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       const sub = manager.create(Subscription, {
         user_id: userId,
         shop_id: shopId,
@@ -295,9 +298,8 @@ export class ProWalletService {
         currency: 'XOF',
         interval,
         started_at: new Date(),
-        next_billing: interval === 'year'
-          ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        next_billing: expiresAt,
+        ends_at: expiresAt,
       });
       await manager.save(Subscription, sub);
 

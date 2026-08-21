@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-4040}:4040"
-    # App secrets (KKIAPAY, Stripe, SPACES_*, MAIL_*, …) are read from .env.
+    # App secrets (KKIAPAY, Stripe, B2_*, MAIL_*, …) are read from .env.
     # The infra vars in `environment` point at the compose services and override .env.
     env_file:
       - .env

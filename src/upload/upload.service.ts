@@ -10,13 +10,13 @@ export class UploadService {
   private readonly isConfigured: boolean;
 
   constructor(private readonly configService: ConfigService) {
-    const endpointRaw = this.configService.get<string>('SPACES_ENDPOINT');
-    const bucket = this.configService.get<string>('SPACES_BUCKET');
-    const key = this.configService.get<string>('SPACES_KEY');
-    const secret = this.configService.get<string>('SPACES_SECRET');
+    const endpointRaw = this.configService.get<string>('B2_ENDPOINT');
+    const bucket = this.configService.get<string>('B2_BUCKET');
+    const key = this.configService.get<string>('B2_KEY_ID');
+    const secret = this.configService.get<string>('B2_APPLICATION_KEY');
 
     if (!endpointRaw || !bucket || !key || !secret) {
-      this.logger.warn('DigitalOcean Spaces not configured. Uploads will fail gracefully.');
+      this.logger.warn('Backblaze B2 not configured. Uploads will fail gracefully.');
       this.isConfigured = false;
       return;
     }
@@ -28,7 +28,7 @@ export class UploadService {
     this.bucket = bucket;
     this.client = new S3Client({
       endpoint,
-      region: this.configService.get<string>('SPACES_REGION') ?? 'us-east-1',
+      region: this.configService.get<string>('B2_REGION') ?? this.regionFromEndpoint(endpoint),
       credentials: {
         accessKeyId: key,
         secretAccessKey: secret,
@@ -38,9 +38,15 @@ export class UploadService {
     this.isConfigured = true;
   }
 
-  /** Public object URL (DigitalOcean Spaces virtual-hosted style). */
+  /** Backblaze B2 S3-compatible endpoints embed the region: s3.<region>.backblazeb2.com */
+  private regionFromEndpoint(endpoint: string): string {
+    const match = endpoint.match(/s3\.([^.]+)\.backblazeb2\.com/);
+    return match ? match[1] : 'us-east-005';
+  }
+
+  /** Public object URL (B2 S3-compatible virtual-hosted style). Requires the bucket to be set to Public. */
   private objectPublicUrl(key: string): string {
-    const endpointRaw = this.configService.get<string>('SPACES_ENDPOINT')!;
+    const endpointRaw = this.configService.get<string>('B2_ENDPOINT')!;
     const host = endpointRaw.replace(/^https?:\/\//, '').split('/')[0];
     return `https://${this.bucket}.${host}/${key}`;
   }
@@ -48,7 +54,7 @@ export class UploadService {
   async uploadFile(file: Express.Multer.File): Promise<string> {
     if (!this.isConfigured || !this.client || !this.bucket) {
       throw new InternalServerErrorException(
-        'File upload not configured. Please set SPACES_ENDPOINT, SPACES_BUCKET, SPACES_KEY, and SPACES_SECRET environment variables.',
+        'File upload not configured. Please set B2_ENDPOINT, B2_BUCKET, B2_KEY_ID, and B2_APPLICATION_KEY environment variables.',
       );
     }
 
@@ -59,14 +65,13 @@ export class UploadService {
           Bucket: this.bucket,
           Key: key,
           Body: file.buffer,
-          ACL: 'public-read',
           ContentType: file.mimetype,
         }),
       );
       return this.objectPublicUrl(key);
     } catch {
       throw new InternalServerErrorException(
-        'Failed to upload file to DigitalOcean Spaces',
+        'Failed to upload file to Backblaze B2',
       );
     }
   }
