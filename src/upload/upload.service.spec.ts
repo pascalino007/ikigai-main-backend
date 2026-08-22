@@ -14,11 +14,11 @@ describe('UploadService', () => {
           useValue: {
             get: (key: string) =>
               ({
-                SPACES_ENDPOINT: 'ams3.digitaloceanspaces.com',
-                SPACES_BUCKET: 'test-bucket',
-                SPACES_KEY: 'test-key',
-                SPACES_SECRET: 'test-secret',
-                SPACES_REGION: 'ams3',
+                B2_ENDPOINT: 's3.us-east-005.backblazeb2.com',
+                B2_BUCKET: 'test-bucket',
+                B2_KEY_ID: 'test-key',
+                B2_APPLICATION_KEY: 'test-secret',
+                B2_REGION: 'us-east-005',
               })[key],
           },
         },
