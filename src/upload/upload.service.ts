@@ -59,7 +59,8 @@ export class UploadService {
     }
 
     try {
-      const key = `uploads/${Date.now()}-${file.originalname}`;
+      // Key must start with "ikigai" — the B2 application key is restricted to that name prefix.
+      const key = `ikigai/uploads/${Date.now()}-${file.originalname}`;
       await this.client.send(
         new PutObjectCommand({
           Bucket: this.bucket,
