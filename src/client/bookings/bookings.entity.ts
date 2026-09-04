@@ -1,6 +1,7 @@
 import {
   Entity,
   Column,
+  Index,
   PrimaryGeneratedColumn,
   OneToOne,
 } from 'typeorm';
@@ -11,9 +12,13 @@ export class Bookings {
   @PrimaryGeneratedColumn()
   id: number;
 
+  // Filtered on by userBookingsByStatus / userHistory / findOne(id, user_id).
+  @Index()
   @Column()
   user_id: number;
 
+  // Filtered on by findByProvider / getClientele (a shop's booking list & clientele).
+  @Index()
   @Column()
   provider_id: number;
 
@@ -31,6 +36,9 @@ export class Bookings {
   /**
    * 0 = pending payment, 1 = confirmed (paid), 2 = cancelled, 3 = payment failed
    */
+  // Filtered on by the scheduler (expiring CONFIRMED / stale PENDING_PAYMENT scans)
+  // and every list endpoint's status-scoped queries.
+  @Index()
   @Column({ type: 'int', default: 0 })
   booking_status: number;
 
@@ -57,10 +65,12 @@ export class Bookings {
   currency: string;
 
   /** Unique token the client shows as QR for provider to scan → starts service */
+  @Index()
   @Column({ type: 'varchar', length: 64, nullable: true })
   qr_checkin_token: string | null;
 
   /** Unique token the provider shows as QR for client to scan → ends service */
+  @Index()
   @Column({ type: 'varchar', length: 64, nullable: true })
   qr_checkout_token: string | null;
 

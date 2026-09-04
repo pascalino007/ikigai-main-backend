@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # NestJS API — request-rate/latency/error metrics + Node.js process stats.
+  - job_name: ikigai-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:4040"]
+
+  # Host-level CPU / memory / disk / network (the box the whole stack runs on).
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # Per-container CPU / memory / network (which container is actually eating
+  # resources — api vs mysql vs redis).
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  - job_name: mysql
+    static_configs:
+      - targets: ["mysqld-exporter:9104"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]

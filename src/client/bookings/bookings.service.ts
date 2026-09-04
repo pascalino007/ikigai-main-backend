@@ -38,68 +38,90 @@ export class BookingsService {
     return crypto.randomUUID().replace(/-/g, '');
   }
 
-  /** Enrich a booking with service + shop + user + worker data for mobile & provider apps */
-  private async enrichBooking(booking: Bookings) {
-    const service = await this.serviceRepo.findOne({
-      where: { id: booking.service_id },
-    });
-    const shop = service?.provider_id
-      ? await this.shopRepo.findOne({ where: { id: service.provider_id } })
-      : null;
-    const user = await this.userRepo.findOne({
-      where: { id: booking.user_id },
-    });
-    const worker = booking.worker_id
-      ? await this.workerRepo.findOne({ where: { id: booking.worker_id } })
-      : null;
+  /**
+   * Enrich bookings with service + shop + user + worker data for mobile & provider apps.
+   * Batches the lookups (one query per related table via `In(...)`, mirroring
+   * `getClientele` below) instead of querying per booking — a list of N bookings
+   * used to fire up to 4N sequential single-row queries.
+   */
+  private async enrichBookings(bookings: Bookings[]) {
+    if (bookings.length === 0) return [];
 
-    return {
-      ...booking,
-      service_name: service?.name ?? null,
-      service_image_url: service?.imageurl ?? null,
-      client_name: user ? `${user.firstname ?? ''} ${user.lastname ?? ''}`.trim() || null : null,
-      client_phone: user?.phone ?? null,
-      client_image_url: user?.image ?? null,
-      shop_name: shop?.name ?? null,
-      worker_name: worker ? `${worker.first_name ?? ''} ${worker.last_name ?? ''}`.trim() || null : null,
-      service: service
-        ? {
-            id: service.id,
-            name: service.name,
-            description: service.description,
-            price: service.price,
-            duration: service.duration,
-            imageurl: service.imageurl,
-          }
-        : null,
-      shop: shop
-        ? {
-            id: shop.id,
-            name: shop.name,
-            address: shop.address,
-            ville: shop.ville,
-            quartier: shop.quartier,
-            latitude: shop.latitude,
-            longitude: shop.longitude,
-            profileImageUrl: shop.profileImageUrl,
-            phone: shop.phone,
-          }
-        : null,
-      user: user
-        ? {
-            id: user.id,
-            firstname: user.firstname,
-            lastname: user.lastname,
-            phone: user.phone,
-            email: user.email,
-            image: user.image,
-          }
-        : null,
-    };
+    const serviceIds = [...new Set(bookings.map((b) => b.service_id).filter(Boolean))];
+    const userIds = [...new Set(bookings.map((b) => b.user_id).filter(Boolean))];
+    const workerIds = [...new Set(bookings.map((b) => b.worker_id).filter((id): id is number => !!id))];
+
+    const [services, users, workers] = await Promise.all([
+      serviceIds.length ? this.serviceRepo.find({ where: { id: In(serviceIds) } }) : Promise.resolve([]),
+      userIds.length ? this.userRepo.find({ where: { id: In(userIds) } }) : Promise.resolve([]),
+      workerIds.length ? this.workerRepo.find({ where: { id: In(workerIds) } }) : Promise.resolve([]),
+    ]);
+
+    // Shops are keyed by the *service's* provider_id, so this depends on services
+    // having resolved first — the one genuinely sequential step, same as before.
+    const shopIds = [...new Set(services.map((s) => s.provider_id).filter(Boolean))];
+    const shops = shopIds.length ? await this.shopRepo.find({ where: { id: In(shopIds) } }) : [];
+
+    const serviceById = new Map(services.map((s) => [s.id, s]));
+    const userById = new Map(users.map((u) => [u.id, u]));
+    const workerById = new Map(workers.map((w) => [w.id, w]));
+    const shopById = new Map(shops.map((s) => [s.id, s]));
+
+    return bookings.map((booking) => {
+      const service = serviceById.get(booking.service_id);
+      const shop = service?.provider_id ? shopById.get(service.provider_id) : undefined;
+      const user = userById.get(booking.user_id);
+      const worker = booking.worker_id ? workerById.get(booking.worker_id) : undefined;
+
+      return {
+        ...booking,
+        service_name: service?.name ?? null,
+        service_image_url: service?.imageurl ?? null,
+        client_name: user ? `${user.firstname ?? ''} ${user.lastname ?? ''}`.trim() || null : null,
+        client_phone: user?.phone ?? null,
+        client_image_url: user?.image ?? null,
+        shop_name: shop?.name ?? null,
+        worker_name: worker ? `${worker.first_name ?? ''} ${worker.last_name ?? ''}`.trim() || null : null,
+        service: service
+          ? {
+              id: service.id,
+              name: service.name,
+              description: service.description,
+              price: service.price,
+              duration: service.duration,
+              imageurl: service.imageurl,
+            }
+          : null,
+        shop: shop
+          ? {
+              id: shop.id,
+              name: shop.name,
+              address: shop.address,
+              ville: shop.ville,
+              quartier: shop.quartier,
+              latitude: shop.latitude,
+              longitude: shop.longitude,
+              profileImageUrl: shop.profileImageUrl,
+              phone: shop.phone,
+            }
+          : null,
+        user: user
+          ? {
+              id: user.id,
+              firstname: user.firstname,
+              lastname: user.lastname,
+              phone: user.phone,
+              email: user.email,
+              image: user.image,
+            }
+          : null,
+      };
+    });
   }
 
-  private async enrichBookings(bookings: Bookings[]) {
-    return Promise.all(bookings.map((b) => this.enrichBooking(b)));
+  private async enrichBooking(booking: Bookings) {
+    const [enriched] = await this.enrichBookings([booking]);
+    return enriched;
   }
 
   // ── user bookings by status group ──

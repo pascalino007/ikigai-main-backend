@@ -95,6 +95,39 @@ ssh -L 8081:localhost:8081 user@<server-ip>
 
 ---
 
+## 4c. Monitoring (Prometheus + Grafana)
+
+The stack ships Prometheus, Grafana, and four exporters (`node-exporter` for host
+CPU/RAM/disk, `cadvisor` for per-container resource use, `mysqld-exporter`,
+`redis-exporter`), plus a `/metrics` endpoint on the API itself (request rate,
+p95 latency and error rate per route, Node.js process stats). Grafana comes
+pre-provisioned with a Prometheus datasource and an "Ikigai — System Overview"
+dashboard — nothing to configure by hand.
+
+Like phpMyAdmin, **everything here is bound to `127.0.0.1` only.** Reach it
+through an SSH tunnel:
+
+```bash
+ssh -L 3000:localhost:3000 -L 9090:localhost:9090 user@<server-ip>
+# then open http://localhost:3000 (Grafana) or http://localhost:9090 (Prometheus)
+```
+
+Log into Grafana with `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `.env`
+(set a real password — `changeme` is only a placeholder, same rule as `JWT_SECRET`).
+
+> `mysqld-exporter` currently reuses the MySQL root credentials (simplest, and it's
+> never exposed off the box). Switch it to a dedicated least-privilege user
+> (`PROCESS`, `REPLICATION CLIENT`, `SELECT` on `performance_schema`) later if
+> you want tighter scoping.
+
+**Resource cost**: the monitoring services add up to roughly 800 MB of memory
+headroom on top of the API/MySQL/Redis stack (Prometheus 256M, Grafana 256M,
+cAdvisor 128M, node-exporter 64M, mysqld-exporter 64M, redis-exporter 32M —
+all capped via `deploy.resources.limits`). On the 2 GB minimum from §1 that's
+tight; **4 GB+ is a more realistic floor once monitoring is running.**
+
+---
+
 ## 5. Database schema (important)
 
 `DB_SYNCHRONIZE=true` lets TypeORM auto-create/alter tables from the entities — convenient for the **first** deploy.
@@ -137,7 +170,47 @@ Schedule this with cron and copy the dump off-server.
 
 ---
 
-## 7. Production checklist
+## 7. Docker Swarm (optional)
+
+The same `docker-compose.yml` also works as a Swarm stack file (every service
+has a `deploy:` block). Swarm buys you rolling restarts, declared resource
+limits, and `docker service` health/rollback — worth it once you're past a
+single hand-run VPS; for a single box on `docker compose up -d`, §3-§6 above
+are all you need, so treat this section as opt-in, not a required next step.
+
+```bash
+docker swarm init                    # once per host (or per manager node)
+docker compose build                 # Swarm doesn't build — bake the image first
+docker stack deploy -c docker-compose.yml ikigai
+```
+
+Differences from plain `docker compose` worth knowing before you switch:
+
+- **No `build:`.** Swarm only ever pulls/uses the `image:` tag (`ikigai-api:latest`
+  by default — override with `IMAGE_TAG` in `.env`). Re-run `docker compose build`
+  before every `docker stack deploy` when you change code; on a multi-node swarm
+  you'd push that tag to a registry instead so other nodes can pull it.
+- **No `depends_on` ordering.** Swarm starts every service immediately rather than
+  waiting for MySQL/Redis to report healthy first. `@nestjs/typeorm`'s default
+  connection retry (10 attempts, 3s apart) already covers this — no code change
+  needed — but a *first* boot on an empty DB may need a manual `docker service
+  update --force ikigai_api` if it exhausts its retries before MySQL finishes
+  initializing.
+- **`container_name` is ignored** (Swarm names containers per-replica/task itself);
+  harmless, just don't expect `ikigai-api` as a literal container name under swarm.
+
+Common operations become:
+
+```bash
+docker service ls                       # replaces `docker compose ps`
+docker service logs -f ikigai_api        # replaces `docker compose logs -f api`
+docker service update --image ikigai-api:latest ikigai_api   # rolling redeploy
+docker stack rm ikigai                   # replaces `docker compose down`
+```
+
+---
+
+## 8. Production checklist
 
 - [ ] `JWT_SECRET` set to a strong random value (not `yourSecretKey`)
 - [ ] `DB_PASSWORD` strong & unique
@@ -148,3 +221,5 @@ Schedule this with cron and copy the dump off-server.
 - [ ] API behind HTTPS reverse proxy
 - [ ] Automated DB backups scheduled
 - [ ] `.env` never committed to git
+- [ ] `GRAFANA_ADMIN_PASSWORD` set to a real value (not `changeme`)
+- [ ] Grafana/Prometheus ports **not** publicly exposed (127.0.0.1 + SSH tunnel only)

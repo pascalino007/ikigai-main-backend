@@ -1,6 +1,11 @@
 services:
   api:
     build: .
+    # `docker stack deploy` (Swarm) never builds — it only pulls/uses an image that
+    # already has this tag. Run `docker compose build` (or `docker build -t
+    # ikigai-api:latest .`) once before `docker stack deploy` so the tag exists
+    # locally; plain `docker compose up --build` builds AND tags it in one step.
+    image: ikigai-api:${IMAGE_TAG:-latest}
     container_name: ikigai-api
     restart: unless-stopped
     ports:
@@ -22,6 +27,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      resources:
+        limits:
+          memory: 512M
 
   mysql:
     image: mysql:8.0
@@ -43,6 +57,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 1G
 
   redis:
     image: redis:7-alpine
@@ -60,6 +81,13 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 256M
 
   phpmyadmin:
     image: phpmyadmin:5
@@ -77,7 +105,144 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 128M
+
+  # ── Monitoring (Prometheus + Grafana) ──
+  # Everything below is bound to 127.0.0.1 only, same as phpMyAdmin — reach it
+  # through an SSH tunnel, never expose monitoring UIs publicly. See DEPLOY.md
+  # §8 for the tunnel command and what each exporter covers.
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: ikigai-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_EXPOSE_PORT:-9090}:9090"
+    depends_on:
+      - api
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 256M
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: ikigai-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      # No public sign-up / anonymous access — this sits behind an SSH tunnel only.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:${GRAFANA_EXPOSE_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 256M
+
+  # Host-level CPU / memory / disk / network for the box the whole stack runs on.
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: ikigai-node-exporter
+    restart: unless-stopped
+    command:
+      - "--path.rootfs=/host"
+    volumes:
+      - /:/host:ro,rslave
+    pid: host
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 64M
+
+  # Per-container CPU / memory / network — which container is actually using
+  # resources (api vs mysql vs redis vs …).
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: ikigai-cadvisor
+    restart: unless-stopped
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 128M
+
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.15.1
+    container_name: ikigai-mysqld-exporter
+    restart: unless-stopped
+    # Reuses the root credentials already used by the app — this exporter is
+    # internal-only (no published port). Swap for a least-privilege user
+    # (PROCESS, REPLICATION CLIENT, SELECT on performance_schema) if you want
+    # tighter scoping later.
+    environment:
+      DATA_SOURCE_NAME: "root:${DB_PASSWORD:-kabadelivery}@(mysql:3306)/"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 64M
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    container_name: ikigai-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: "redis:6379"
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          memory: 32M
 
 volumes:
   mysql_data:
   redis_data:
+  prometheus_data:
+  grafana_data:

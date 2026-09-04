@@ -44,10 +44,16 @@ export class ShopsController {
     return await this.shopsService.recordVisit(id);
   }
 
-  // ✅ Get all shops, optionally filtered by grade (basic|pro|elite)
+  // ✅ Get all shops, optionally filtered by grade (basic|pro|elite) and/or country ("pays").
+  // Pass random=true for shuffled order (client-facing discovery screens); omitted for
+  // callers like the admin dashboard that expect a stable order.
   @Get()
-  async findAll(@Query('grade') grade?: string): Promise<Shops[]> {
-    return await this.shopsService.findAll(grade);
+  async findAll(
+    @Query('grade') grade?: string,
+    @Query('pays') pays?: string,
+    @Query('random') random?: string,
+  ): Promise<Shops[]> {
+    return await this.shopsService.findAll(grade, pays, random === 'true');
   }
 
   // ✅ Toggle shop visibility on mobile app

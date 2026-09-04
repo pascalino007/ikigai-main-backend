@@ -19,14 +19,21 @@ export class SpecialsService {
     private readonly servicesRepo: Repository<Services>,
   ) {}
 
-  /** Enrich specials with shop lat/lng for mobile distance calculation */
+  /** Enrich specials with shop lat/lng for mobile distance calculation, plus the
+   * shop/service display names the dashboard's Special Offers table needs (it only
+   * stores serviceId/shopId, not names). */
   private async enrichWithShop(specials: Special[]) {
     const shopIds = [...new Set(specials.map(s => s.shopId).filter(Boolean))];
-    if (shopIds.length === 0) return specials.map(s => ({ ...s }));
-    const shops = await this.shopsRepo.findByIds(shopIds);
+    const serviceIds = [...new Set(specials.map(s => s.serviceId).filter(Boolean))];
+    const [shops, services] = await Promise.all([
+      shopIds.length ? this.shopsRepo.findByIds(shopIds) : Promise.resolve([]),
+      serviceIds.length ? this.servicesRepo.findByIds(serviceIds) : Promise.resolve([]),
+    ]);
     const shopMap = new Map(shops.map(s => [String(s.id), s]));
+    const serviceMap = new Map(services.map(s => [String(s.id), s]));
     return specials.map(s => {
       const shop = shopMap.get(String(s.shopId));
+      const service = serviceMap.get(String(s.serviceId));
       return {
         ...s,
         shop_latitude: shop?.latitude ?? null,
@@ -35,6 +42,7 @@ export class SpecialsService {
         shop_address: shop?.address ?? null,
         shop_grade: shop?.grade ?? 'basic',
         shop_profileImageUrl: shop?.profileImageUrl ?? null,
+        service_name: service?.name ?? null,
       };
     });
   }

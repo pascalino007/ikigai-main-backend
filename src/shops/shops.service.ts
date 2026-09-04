@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Raw, Repository } from 'typeorm';
 import { Shops } from './shop.entity';
 import { Users } from '../users/user.entity';
 import { CreateShopDto } from './dtos/create-shop.dto';
@@ -138,16 +138,29 @@ export class ShopsService {
     return 'open';
   }
 
-// ✅ (Optional) Get all shops, optionally filtered by grade
-  async findAll(grade?: string): Promise<Shops[]> {
-    let shops: Shops[];
-    if (grade) {
-      shops = await this.shopsRepository.find({ where: { grade: grade as any } });
-    } else {
-      shops = await this.shopsRepository.find();
+// ✅ (Optional) Get all shops, optionally filtered by grade and/or country ("pays").
+  // `random` shuffles the result (client-facing discovery screens); left off, order is
+  // the DB's natural order (what the admin dashboard relies on).
+  async findAll(grade?: string, pays?: string, random = false): Promise<Shops[]> {
+    const where: FindOptionsWhere<Shops> = {};
+    if (grade) where.grade = grade as any;
+    // pays is free-text (no enum at the DB level) and existing data is inconsistently
+    // cased ("Togo" / "togo"), so compare case-insensitively rather than with `=`.
+    if (pays) {
+      where.pays = Raw((alias) => `LOWER(${alias}) = LOWER(:pays)`, { pays });
     }
+
+    const shops = await this.shopsRepository.find({
+      where: Object.keys(where).length ? where : undefined,
+    });
     for (const shop of shops) {
       shop.status = this.computeEffectiveStatus(shop) as any;
+    }
+    if (random) {
+      for (let i = shops.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shops[i], shops[j]] = [shops[j], shops[i]];
+      }
     }
     return shops;
   }

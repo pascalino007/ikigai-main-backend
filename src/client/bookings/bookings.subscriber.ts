@@ -1,4 +1,5 @@
 import {
+  DataSource,
   EventSubscriber,
   EntitySubscriberInterface,
   InsertEvent,
@@ -15,9 +16,18 @@ export class BookingsSubscriber implements EntitySubscriberInterface<Bookings> {
   private readonly logger = new Logger(BookingsSubscriber.name);
 
   constructor(
+    private readonly dataSource: DataSource,
     private readonly proWalletService: ProWalletService,
     private readonly bookingMail: BookingMailService,
-  ) {}
+  ) {
+    // @nestjs/typeorm does NOT auto-register @EventSubscriber() classes the way it
+    // does entities — TypeORM only activates subscribers listed in the DataSource's
+    // `subscribers` option. Since this subscriber needs Nest-injected dependencies
+    // (ProWalletService, BookingMailService), it must register itself here instead
+    // of being passed as a bare class to `subscribers: [...]` in TypeOrmModule.forRoot
+    // (which would construct it with `new BookingsSubscriber()`, no DI, and crash).
+    dataSource.subscribers.push(this);
+  }
 
   listenTo() {
     return Bookings;

@@ -64,6 +64,7 @@ import { MiServiceOrder } from './mi-services/mi-service-order.entity';
 import { MiServicesModule } from './mi-services/mi-services.module';
 import { AnalyticsEvent } from './analytics/analytics-event.entity';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { TrustedDevice } from './users/trusted-device.entity';
 
 @Module({
@@ -145,6 +146,7 @@ import { TrustedDevice } from './users/trusted-device.entity';
     NotificationsModule,
     MiServicesModule,
     AnalyticsModule,
+    MetricsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
