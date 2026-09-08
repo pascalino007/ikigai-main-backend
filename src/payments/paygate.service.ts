@@ -4,10 +4,17 @@ import { ConfigService } from '@nestjs/config';
 /** Product-level mobile money network as used across the rest of the app. */
 export type PaygateNetwork = 'FLOOZ' | 'TMONEY';
 
-/** PayGateGlobal's own telecom operator codes, used only on the hosted payment page. */
+/** PayGateGlobal's own telecom operator codes, used only on the hosted payment page (Méthode 2). */
 const TELCO_BY_NETWORK: Record<PaygateNetwork, string> = {
   FLOOZ: 'MOOV',
   TMONEY: 'TOGOCEL',
+};
+
+/** PayGateGlobal status codes returned by POST /api/v1/pay (Méthode 1). */
+const PAYGATE_STATUS_MESSAGES: Record<number, string> = {
+  2: "Jeton d'authentification PayGate invalide",
+  4: 'Paramètres de paiement PayGate invalides',
+  6: 'Une transaction avec cet identifiant existe déjà',
 };
 
 @Injectable()
@@ -43,6 +50,69 @@ export class PaygateService {
 
   get isConfigured(): boolean {
     return !!this.authToken;
+  }
+
+  /**
+   * Méthode 1 — pushes a mobile money debit request straight to the
+   * customer's phone (Flooz/Moov or T-Money USSD prompt); no page, no
+   * webview. CAUTION: PayGateGlobal's own docs describe no webhook or
+   * status-check for this method — this call only confirms the request was
+   * *registered* (status 0), not that the customer actually paid. Whether
+   * the wallet ever gets credited depends entirely on whether a
+   * dashboard-level "notification URL" (if PayGate's merchant console has
+   * one) also fires for Méthode 1 transactions, POSTing to the same
+   * `returnUrl` Méthode 2 uses. Unverified — see PaymentWebhookController.
+   */
+  async initiatePayment(params: {
+    amount: number;
+    phone: string;
+    network: PaygateNetwork;
+    transactionRef: string;
+    description?: string;
+  }): Promise<{ txReference: string }> {
+    if (!this.authToken) {
+      throw new BadRequestException(
+        'PayGate is not configured on the server (missing PAYGATE_AUTH_TOKEN)',
+      );
+    }
+
+    let response: Response;
+    try {
+      response = await fetch('https://paygateglobal.com/api/v1/pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          auth_token: this.authToken,
+          phone_number: this.toLocalTogoDigits(params.phone),
+          amount: params.amount,
+          description: params.description ?? 'Ikigai wallet top-up',
+          identifier: params.transactionRef,
+          network: params.network,
+        }),
+      });
+    } catch (err) {
+      this.logger.error('PayGate initiate request failed', err as Error);
+      throw new BadRequestException(
+        'Impossible de contacter PayGate pour le moment',
+      );
+    }
+
+    const data = (await response
+      .json()
+      .catch(() => ({}))) as Record<string, unknown>;
+    const status = Number(data.status);
+
+    if (status === 0) {
+      return { txReference: String(data.tx_reference ?? '') };
+    }
+
+    this.logger.error(
+      `PayGate initiate failed for ${params.transactionRef}: status=${data.status}`,
+    );
+    throw new BadRequestException(
+      PAYGATE_STATUS_MESSAGES[status] ??
+        `Échec de l'initialisation PayGate (status ${data.status})`,
+    );
   }
 
   /**

@@ -20,6 +20,12 @@ export class TransactionsController {
     return this.transactionsService.confirmDeposit(body.transactionRef);
   }
 
+  /** Polled by the app while waiting for a redirect-based payment (PayGate) to confirm. */
+  @Get('ref/:ref')
+  getTransactionByRef(@Param('ref') ref: string) {
+    return this.transactionsService.getTransactionByRef(ref);
+  }
+
   
   @Post('pay/initiate')
   initiatePayment(

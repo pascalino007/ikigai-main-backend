@@ -127,30 +127,36 @@ export class TransactionsService {
           'PayGate is not configured on the server (missing PAYGATE_AUTH_TOKEN)',
         );
       }
+      if (!dto.phone) {
+        throw new BadRequestException(
+          'A phone number is required for PayGate (Flooz/T-Money) deposits',
+        );
+      }
+      const network: PaygateNetwork =
+        dto.network === 'TMONEY' ? 'TMONEY' : 'FLOOZ';
 
-      const network: PaygateNetwork | undefined =
-        dto.network === 'TMONEY' || dto.network === 'FLOOZ'
-          ? dto.network
-          : undefined;
-
-      // No externalPaymentId yet: PayGateGlobal only hands us its tx_reference
-      // once the customer pays, via the confirmation webhook (see
-      // PaymentWebhookController / applyDepositEvent).
-      const paymentUrl = this.paygateService.buildPaymentLink({
+      // Méthode 1: push the debit request now. Its response only confirms
+      // PayGate *registered* the request, not that the customer paid —
+      // externalPaymentId here is PayGate's own tx_reference for tracing,
+      // not proof of success. See PaygateService.initiatePayment docstring.
+      const { txReference } = await this.paygateService.initiatePayment({
         amount,
-        transactionRef,
         phone: dto.phone,
         network,
+        transactionRef,
         description: 'Ikigai wallet top-up',
       });
+      transaction.externalPaymentId = txReference;
+      await this.transactionRepository.save(transaction);
 
       clientInstructions = {
         provider: 'paygate',
         transactionRef,
-        paymentUrl,
-        returnUrl: this.paygateService.returnUrl,
+        txReference,
+        network,
         amount,
-        message: 'Finalisez le paiement Flooz/T-Money sur la page PayGate.',
+        message:
+          'Confirmez le paiement en composant le code USSD reçu sur votre téléphone.',
       };
     } else {
       // Sandbox fallback
@@ -172,6 +178,20 @@ export class TransactionsService {
     return { transaction, clientInstructions };
   }
 
+
+  /**
+   * Lightweight status check for the mobile app to poll after a redirect-based
+   * payment (e.g. PayGate) closes, before the confirmation webhook has landed.
+   */
+  async getTransactionByRef(transactionRef: string): Promise<Transaction> {
+    const transaction = await this.transactionRepository.findOne({
+      where: { transactionRef },
+    });
+    if (!transaction) {
+      throw new NotFoundException('Transaction not found');
+    }
+    return transaction;
+  }
 
   async confirmDeposit(transactionRef: string): Promise<Transaction> {
     return this.dataSource.transaction(async (manager) => {
