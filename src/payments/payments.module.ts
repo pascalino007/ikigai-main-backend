@@ -4,6 +4,7 @@ import { PaymentWebhookController } from './payment-webhook.controller';
 import { PaymentWebhookService } from './payment-webhook.service';
 import { StripeService } from './stripe.service';
 import { KkiapayService } from './kkiapay.service';
+import { PaygateService } from './paygate.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { MailModule } from '../mail/mail.module';
 import { Shops } from '../shops/shop.entity';
@@ -21,7 +22,7 @@ import { MiServiceOrder } from '../mi-services/mi-service-order.entity';
     MailModule,
   ],
   controllers: [PaymentWebhookController],
-  providers: [PaymentWebhookService, StripeService, KkiapayService],
-  exports: [StripeService, KkiapayService],
+  providers: [PaymentWebhookService, StripeService, KkiapayService, PaygateService],
+  exports: [StripeService, KkiapayService, PaygateService],
 })
 export class PaymentsModule {}

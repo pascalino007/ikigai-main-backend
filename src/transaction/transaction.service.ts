@@ -11,6 +11,7 @@ import { ProWallet } from 'src/providers/pro_wallet/pro_wallet.entity';
 import { TransactionMotif, TransactionStatus } from './transaction.contants';
 import { StripeService } from '../payments/stripe.service';
 import { KkiapayService } from '../payments/kkiapay.service';
+import { PaygateService, PaygateNetwork } from '../payments/paygate.service';
 import { InitiateDepositDto } from './dtos/initiate-deposit.dto';
 
 export interface DepositResult {
@@ -30,6 +31,7 @@ export class TransactionsService {
     private readonly dataSource: DataSource,
     private readonly stripeService: StripeService,
     private readonly kkiapayService: KkiapayService,
+    private readonly paygateService: PaygateService,
   ) {}
 
   /**
@@ -119,6 +121,37 @@ export class TransactionsService {
         }),
         transactionRef,
       };
+    } else if (paymentProvider === 'paygate') {
+      if (!this.paygateService.isConfigured) {
+        throw new BadRequestException(
+          'PayGate is not configured on the server (missing PAYGATE_AUTH_TOKEN)',
+        );
+      }
+
+      const network: PaygateNetwork | undefined =
+        dto.network === 'TMONEY' || dto.network === 'FLOOZ'
+          ? dto.network
+          : undefined;
+
+      // No externalPaymentId yet: PayGateGlobal only hands us its tx_reference
+      // once the customer pays, via the confirmation webhook (see
+      // PaymentWebhookController / applyDepositEvent).
+      const paymentUrl = this.paygateService.buildPaymentLink({
+        amount,
+        transactionRef,
+        phone: dto.phone,
+        network,
+        description: 'Ikigai wallet top-up',
+      });
+
+      clientInstructions = {
+        provider: 'paygate',
+        transactionRef,
+        paymentUrl,
+        returnUrl: this.paygateService.returnUrl,
+        amount,
+        message: 'Finalisez le paiement Flooz/T-Money sur la page PayGate.',
+      };
     } else {
       // Sandbox fallback
       clientInstructions = {
@@ -139,7 +172,7 @@ export class TransactionsService {
     return { transaction, clientInstructions };
   }
 
-  
+
   async confirmDeposit(transactionRef: string): Promise<Transaction> {
     return this.dataSource.transaction(async (manager) => {
       const transaction = await manager.findOne(Transaction, {

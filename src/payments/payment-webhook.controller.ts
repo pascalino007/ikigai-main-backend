@@ -2,15 +2,17 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Headers,
   HttpCode,
   Param,
   Post,
   Req,
+  Res,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { PaymentWebhookService } from './payment-webhook.service';
 
 @Controller('payments')
@@ -19,6 +21,20 @@ export class PaymentWebhookController {
     private readonly webhookService: PaymentWebhookService,
     private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Browser lands here after paying on a hosted page (e.g. PayGateGlobal
+   * Méthode 2's `url` param). Purely cosmetic — the actual confirmation is
+   * the POST below, which PayGateGlobal sends to this same path.
+   */
+  @Get('webhooks/:provider')
+  landOnReturnPage(@Res() res: Response): void {
+    res
+      .type('html')
+      .send(
+        '<!doctype html><html><body style="font-family:sans-serif;text-align:center;padding:48px 24px"><h2>Paiement reçu</h2><p>Vous pouvez fermer cette page et retourner à l\'application Ikigai.</p></body></html>',
+      );
+  }
 
   /**
    * Aggregators should call this route (configure URL in each dashboard).

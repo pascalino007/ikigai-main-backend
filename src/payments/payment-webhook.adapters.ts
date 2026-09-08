@@ -76,15 +76,30 @@ export function normalizePaymentWebhook(
     return { status: 'pending', transactionRef, externalPaymentId };
   }
 
+  // PayGateGlobal (Méthode 2): this callback is only ever sent once a
+  // payment has cleared — there is no separate "failed" notification and no
+  // status field, so receiving a well-formed body IS the success signal.
+  if (provider === 'paygate') {
+    const transactionRef = o.identifier as string;
+    const externalPaymentId =
+      (o.tx_reference as string) || (o.payment_reference as string);
+    if (!transactionRef) {
+      throw new BadRequestException('PayGate webhook missing identifier');
+    }
+    return { status: 'succeeded', transactionRef, externalPaymentId };
+  }
+
   const transactionRef =
     (o.transactionRef as string) ||
     (o.transaction_ref as string) ||
     (o.merchant_reference as string) ||
+    (o.identifier as string) ||
     (o.reference as string);
   const externalPaymentId =
     (o.externalPaymentId as string) ||
     (o.payment_id as string) ||
     (o.providerPaymentId as string) ||
+    (o.tx_reference as string) ||
     (o.transaction_id as string);
 
   const rawStatus = String(

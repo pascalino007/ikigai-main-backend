@@ -1,8 +1,9 @@
 import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
-const PAYMENT_PROVIDERS = ['stripe', 'kkiapay', 'sandbox'] as const;
+const PAYMENT_PROVIDERS = ['stripe', 'kkiapay', 'paygate', 'sandbox'] as const;
 const PAYMENT_CHANNELS = ['card', 'mobile_money'] as const;
+const PAYGATE_NETWORKS = ['FLOOZ', 'TMONEY'] as const;
 
 export class InitiateDepositDto {
   @Type(() => Number)
@@ -21,4 +22,14 @@ export class InitiateDepositDto {
   @IsString()
   @IsIn([...PAYMENT_PROVIDERS])
   paymentProvider: string;
+
+  /** Required when paymentProvider is 'paygate' (customer's mobile money number). */
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  /** Required when paymentProvider is 'paygate'. */
+  @IsOptional()
+  @IsIn([...PAYGATE_NETWORKS])
+  network?: string;
 }
