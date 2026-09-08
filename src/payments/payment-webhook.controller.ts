@@ -65,6 +65,15 @@ export class PaymentWebhookController {
       return;
     }
 
+    // PayGateGlobal doesn't sign its webhook calls with anything we control —
+    // there is no shared secret or header to verify per their docs, so this
+    // generic HMAC-of-our-own-secret check can never pass for it. Skipping
+    // it here; correctness instead relies on the `identifier` matching a
+    // real pending transaction (see PaymentWebhookService.applyPaymentEvent).
+    if (provider === 'paygate') {
+      return;
+    }
+
     const secret = this.config.get<string>('PAYMENT_WEBHOOK_SECRET');
     const isProd = process.env.NODE_ENV === 'production';
 
