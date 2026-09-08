@@ -71,13 +71,26 @@ export class PaygateService {
       description: params.description ?? 'Ikigai wallet top-up',
       url: this.returnUrl,
     });
-    if (params.phone) {
-      query.set('phone', params.phone);
+    const localPhone = this.toLocalTogoDigits(params.phone);
+    if (localPhone) {
+      query.set('phone', localPhone);
     }
     if (params.network) {
       query.set('network', TELCO_BY_NETWORK[params.network]);
     }
 
     return `${this.pageUrl}?${query.toString()}`;
+  }
+
+  /**
+   * PayGateGlobal's `phone` param wants the bare 8-digit Togo local number
+   * (no `+228`/`00228`) — sending it with a country code makes their page
+   * fail to recognize the number/network, which then falls back to showing
+   * the customer a manual network-selection step.
+   */
+  private toLocalTogoDigits(phone?: string): string | undefined {
+    if (!phone) return undefined;
+    const digits = phone.replace(/\D/g, '');
+    return digits.length >= 8 ? digits.slice(-8) : digits || undefined;
   }
 }
