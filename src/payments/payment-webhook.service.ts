@@ -242,6 +242,21 @@ export class PaymentWebhookService {
           </div>
         `,
       });
+
+      // 3. Push notification (mirrors the in-app row above)
+      if (user.fcm_token) {
+        await this.notificationsService.sendPushNotification({
+          token: user.fcm_token,
+          title: 'Dépôt reçu !',
+          body: `${amount.toLocaleString('fr-FR')} FCFA ont été ajoutés à votre portefeuille.`,
+          data: {
+            type: 'wallet_deposit',
+            userId: String(userId),
+            amount: String(amount),
+            newBalance: String(newBalance),
+          },
+        });
+      }
     } catch (e) {
       this.logger.error(`Failed to notify user ${userId} of deposit: ${e.message}`);
     }
