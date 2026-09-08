@@ -5,6 +5,7 @@ import {
   Get,
   Headers,
   HttpCode,
+  Logger,
   Param,
   Post,
   Req,
@@ -17,6 +18,8 @@ import { PaymentWebhookService } from './payment-webhook.service';
 
 @Controller('payments')
 export class PaymentWebhookController {
+  private readonly logger = new Logger(PaymentWebhookController.name);
+
   constructor(
     private readonly webhookService: PaymentWebhookService,
     private readonly config: ConfigService,
@@ -28,7 +31,8 @@ export class PaymentWebhookController {
    * the POST below, which PayGateGlobal sends to this same path.
    */
   @Get('webhooks/:provider')
-  landOnReturnPage(@Res() res: Response): void {
+  landOnReturnPage(@Param('provider') provider: string, @Res() res: Response): void {
+    this.logger.log(`[return] browser landed on return page for provider=${provider}`);
     res
       .type('html')
       .send(
@@ -48,10 +52,16 @@ export class PaymentWebhookController {
     @Headers('x-payment-signature') signature: string | undefined,
     @Req() req: Request,
   ): Promise<{ received: boolean }> {
+    this.logger.log(`[webhook] received provider=${provider} body=${JSON.stringify(body)}`);
+
     this.assertSignatureIfConfigured(provider, body, signature, req);
 
     const event = this.webhookService.parseAndNormalize(provider, body);
+    this.logger.log(
+      `[webhook] normalized provider=${provider}: status=${event.status} ref=${event.transactionRef ?? '(none)'} externalId=${event.externalPaymentId ?? '(none)'}`,
+    );
     await this.webhookService.applyPaymentEvent(event);
+    this.logger.log(`[webhook] applied provider=${provider} ref=${event.transactionRef ?? '(none)'}`);
     return { received: true };
   }
 

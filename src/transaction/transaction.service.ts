@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,6 +13,8 @@ import { TransactionMotif, TransactionStatus } from './transaction.contants';
 import { StripeService } from '../payments/stripe.service';
 import { KkiapayService } from '../payments/kkiapay.service';
 import { PaygateService, PaygateNetwork } from '../payments/paygate.service';
+import { PaymentWebhookService } from '../payments/payment-webhook.service';
+import { NormalizedPaymentEvent } from '../payments/payment-webhook.adapters';
 import { InitiateDepositDto } from './dtos/initiate-deposit.dto';
 
 export interface DepositResult {
@@ -21,6 +24,8 @@ export interface DepositResult {
 
 @Injectable()
 export class TransactionsService {
+  private readonly logger = new Logger(TransactionsService.name);
+
   constructor(
     @InjectRepository(Transaction)
     private readonly transactionRepository: Repository<Transaction>,
@@ -32,6 +37,7 @@ export class TransactionsService {
     private readonly stripeService: StripeService,
     private readonly kkiapayService: KkiapayService,
     private readonly paygateService: PaygateService,
+    private readonly paymentWebhookService: PaymentWebhookService,
   ) {}
 
   /**
@@ -148,6 +154,9 @@ export class TransactionsService {
       });
       transaction.externalPaymentId = txReference;
       await this.transactionRepository.save(transaction);
+      this.logger.log(
+        `[deposit] paygate initiated: ref=${transactionRef} amount=${amount} network=${network} tx_reference=${txReference}`,
+      );
 
       clientInstructions = {
         provider: 'paygate',
@@ -180,16 +189,49 @@ export class TransactionsService {
 
 
   /**
-   * Lightweight status check for the mobile app to poll after a redirect-based
-   * payment (e.g. PayGate) closes, before the confirmation webhook has landed.
+   * Status check polled by the mobile app while waiting on a payment.
+   * For PayGate specifically, this doubles as the confirmation mechanism:
+   * Méthode 1 has no reliable push webhook, so instead of only waiting for
+   * one, we actively ask PayGate's own /status endpoint every time the app
+   * polls, and apply the result the same way a webhook would.
    */
   async getTransactionByRef(transactionRef: string): Promise<Transaction> {
-    const transaction = await this.transactionRepository.findOne({
+    let transaction = await this.transactionRepository.findOne({
       where: { transactionRef },
     });
     if (!transaction) {
       throw new NotFoundException('Transaction not found');
     }
+
+    if (
+      transaction.paymentProvider === 'paygate' &&
+      transaction.status === TransactionStatus.PENDING
+    ) {
+      this.logger.log(`[poll] checking paygate status for ref=${transactionRef}`);
+      const result = await this.paygateService.checkStatusByIdentifier(transactionRef);
+      if (!result) {
+        this.logger.warn(`[poll] no usable status yet for ref=${transactionRef}`);
+      } else if (result.outcome === 'pending') {
+        this.logger.log(`[poll] ref=${transactionRef} still pending`);
+      } else {
+        this.logger.log(
+          `[poll] ref=${transactionRef} resolved: outcome=${result.outcome} tx_reference=${result.txReference ?? '(none)'}`,
+        );
+        const event: NormalizedPaymentEvent = {
+          status: result.outcome,
+          transactionRef,
+          externalPaymentId: result.txReference,
+        };
+        await this.paymentWebhookService.applyPaymentEvent(event);
+        transaction = await this.transactionRepository.findOne({
+          where: { transactionRef },
+        });
+        if (!transaction) {
+          throw new NotFoundException('Transaction not found');
+        }
+      }
+    }
+
     return transaction;
   }
 

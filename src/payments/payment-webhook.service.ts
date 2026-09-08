@@ -62,6 +62,10 @@ export class PaymentWebhookService {
       return;
     }
 
+    this.logger.log(
+      `Applying payment event: status=${event.status} ref=${event.transactionRef ?? '(none)'} externalId=${event.externalPaymentId ?? '(none)'}`,
+    );
+
     await this.dataSource.transaction(async (manager) => {
       // ── BULK BOOKING PAYMENT — fan out to all transactions sharing the bulkRef.
       // The bulkRef is sent to the aggregator as the merchant `transactionRef`.
@@ -100,8 +104,15 @@ export class PaymentWebhookService {
       }
 
       if (!txn) {
+        this.logger.warn(
+          `No transaction found for webhook: ref=${event.transactionRef ?? '(none)'} externalId=${event.externalPaymentId ?? '(none)'}`,
+        );
         throw new NotFoundException('Transaction not found for webhook');
       }
+
+      this.logger.log(
+        `Matched transaction id=${txn.id} ref=${txn.transactionRef} motif=${txn.transactionMotifId} currentStatus=${txn.status}`,
+      );
 
       // ── WALLET DEPOSIT ──
       if (txn.transactionMotifId === TransactionMotif.WALLET_DEPOSIT) {
@@ -141,7 +152,8 @@ export class PaymentWebhookService {
   ): Promise<void> {
     if (event.status === 'succeeded') {
       if (txn.status === TransactionStatus.SUCCESS) {
-        return; // idempotent
+        this.logger.log(`Deposit ${txn.transactionRef} already SUCCESS — idempotent skip`);
+        return;
       }
 
       const wallet = await manager.findOne(ClientWallet, {
@@ -184,6 +196,7 @@ export class PaymentWebhookService {
         txn.externalPaymentId = event.externalPaymentId;
       }
       await manager.save(Transaction, txn);
+      this.logger.log(`Deposit ${txn.transactionRef} marked FAILED`);
     }
   }
 

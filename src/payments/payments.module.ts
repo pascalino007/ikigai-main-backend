@@ -23,6 +23,6 @@ import { MiServiceOrder } from '../mi-services/mi-service-order.entity';
   ],
   controllers: [PaymentWebhookController],
   providers: [PaymentWebhookService, StripeService, KkiapayService, PaygateService],
-  exports: [StripeService, KkiapayService, PaygateService],
+  exports: [PaymentWebhookService, StripeService, KkiapayService, PaygateService],
 })
 export class PaymentsModule {}

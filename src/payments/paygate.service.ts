@@ -10,12 +10,30 @@ const TELCO_BY_NETWORK: Record<PaygateNetwork, string> = {
   TMONEY: 'TOGOCEL',
 };
 
-/** PayGateGlobal status codes returned by POST /api/v1/pay (Méthode 1). */
+/** PayGateGlobal status codes returned by POST /api/v1/pay (Méthode 1's *initiate* call). */
 const PAYGATE_STATUS_MESSAGES: Record<number, string> = {
   2: "Jeton d'authentification PayGate invalide",
   4: 'Paramètres de paiement PayGate invalides',
   6: 'Une transaction avec cet identifiant existe déjà',
 };
+
+/**
+ * PayGateGlobal's /status check codes — a completely different numbering
+ * from the /pay codes above despite reusing 0/2/4/6.
+ */
+const PAYGATE_CHECK_STATUS = {
+  SUCCESS: 0,
+  PENDING: 2,
+  EXPIRED: 4,
+  CANCELLED: 6,
+} as const;
+
+export interface PaygateStatusResult {
+  outcome: 'succeeded' | 'pending' | 'failed';
+  txReference?: string;
+  paymentReference?: string;
+  paymentMethod?: string;
+}
 
 @Injectable()
 export class PaygateService {
@@ -55,13 +73,11 @@ export class PaygateService {
   /**
    * Méthode 1 — pushes a mobile money debit request straight to the
    * customer's phone (Flooz/Moov or T-Money USSD prompt); no page, no
-   * webview. CAUTION: PayGateGlobal's own docs describe no webhook or
-   * status-check for this method — this call only confirms the request was
-   * *registered* (status 0), not that the customer actually paid. Whether
-   * the wallet ever gets credited depends entirely on whether a
-   * dashboard-level "notification URL" (if PayGate's merchant console has
-   * one) also fires for Méthode 1 transactions, POSTing to the same
-   * `returnUrl` Méthode 2 uses. Unverified — see PaymentWebhookController.
+   * webview. This call only confirms the request was *registered* (status
+   * 0), not that the customer actually paid — actual confirmation comes
+   * from either PayGateGlobal's webhook (PaymentWebhookController, if their
+   * account-level notification URL fires for this method too) or, more
+   * reliably, active polling via `checkStatusByIdentifier` below.
    */
   async initiatePayment(params: {
     amount: number;
@@ -76,6 +92,11 @@ export class PaygateService {
       );
     }
 
+    const localPhone = this.toLocalTogoDigits(params.phone);
+    this.logger.log(
+      `[initiate] ref=${params.transactionRef} amount=${params.amount} network=${params.network} phone=${this.maskPhone(localPhone)}`,
+    );
+
     let response: Response;
     try {
       response = await fetch('https://paygateglobal.com/api/v1/pay', {
@@ -83,7 +104,7 @@ export class PaygateService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           auth_token: this.authToken,
-          phone_number: this.toLocalTogoDigits(params.phone),
+          phone_number: localPhone,
           amount: params.amount,
           description: params.description ?? 'Ikigai wallet top-up',
           identifier: params.transactionRef,
@@ -91,7 +112,10 @@ export class PaygateService {
         }),
       });
     } catch (err) {
-      this.logger.error('PayGate initiate request failed', err as Error);
+      this.logger.error(
+        `[initiate] request failed for ref=${params.transactionRef}`,
+        err as Error,
+      );
       throw new BadRequestException(
         'Impossible de contacter PayGate pour le moment',
       );
@@ -101,18 +125,75 @@ export class PaygateService {
       .json()
       .catch(() => ({}))) as Record<string, unknown>;
     const status = Number(data.status);
+    this.logger.log(
+      `[initiate] response for ref=${params.transactionRef}: http=${response.status} status=${data.status} tx_reference=${data.tx_reference ?? '(none)'}`,
+    );
 
     if (status === 0) {
       return { txReference: String(data.tx_reference ?? '') };
     }
 
     this.logger.error(
-      `PayGate initiate failed for ${params.transactionRef}: status=${data.status}`,
+      `[initiate] failed for ref=${params.transactionRef}: status=${data.status}`,
     );
     throw new BadRequestException(
       PAYGATE_STATUS_MESSAGES[status] ??
         `Échec de l'initialisation PayGate (status ${data.status})`,
     );
+  }
+
+  /**
+   * Actively asks PayGateGlobal for a transaction's real status, keyed by
+   * OUR OWN identifier (POST /api/v2/status) — no need to track PayGate's
+   * tx_reference separately. This is the authoritative confirmation source
+   * for Méthode 1 (which has no reliable push-based webhook): call this
+   * while the client polls our own transaction-status endpoint.
+   *
+   * Unknown/unrecognized status codes map to 'pending' rather than 'failed'
+   * — a false "still waiting" is recoverable, a false "failed" on a
+   * genuinely successful payment is not.
+   */
+  async checkStatusByIdentifier(identifier: string): Promise<PaygateStatusResult | null> {
+    if (!this.authToken) return null;
+
+    let response: Response;
+    try {
+      response = await fetch('https://paygateglobal.com/api/v2/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_token: this.authToken, identifier }),
+      });
+    } catch (err) {
+      this.logger.error(`[status] request failed for ref=${identifier}`, err as Error);
+      return null;
+    }
+
+    const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const status = Number(data.status);
+    if (Number.isNaN(status)) {
+      this.logger.warn(
+        `[status] unparseable response for ref=${identifier}: http=${response.status} body=${JSON.stringify(data)}`,
+      );
+      return null;
+    }
+
+    const outcome: PaygateStatusResult['outcome'] =
+      status === PAYGATE_CHECK_STATUS.SUCCESS
+        ? 'succeeded'
+        : status === PAYGATE_CHECK_STATUS.EXPIRED || status === PAYGATE_CHECK_STATUS.CANCELLED
+          ? 'failed'
+          : 'pending';
+
+    this.logger.log(
+      `[status] ref=${identifier}: status=${status} -> outcome=${outcome} tx_reference=${data.tx_reference ?? '(none)'}`,
+    );
+
+    return {
+      outcome,
+      txReference: typeof data.tx_reference === 'string' ? data.tx_reference : undefined,
+      paymentReference: typeof data.payment_reference === 'string' ? data.payment_reference : undefined,
+      paymentMethod: typeof data.payment_method === 'string' ? data.payment_method : undefined,
+    };
   }
 
   /**
@@ -162,5 +243,12 @@ export class PaygateService {
     if (!phone) return undefined;
     const digits = phone.replace(/\D/g, '');
     return digits.length >= 8 ? digits.slice(-8) : digits || undefined;
+  }
+
+  /** e.g. "90171212" -> "90****12" — enough to spot in logs without exposing the full number. */
+  private maskPhone(phone?: string): string {
+    if (!phone) return '(none)';
+    if (phone.length <= 4) return phone;
+    return `${phone.slice(0, 2)}****${phone.slice(-2)}`;
   }
 }
