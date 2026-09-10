@@ -10,6 +10,7 @@ import { Users } from '../users/user.entity';
 import { Services } from '../services/services.entity';
 import { Notification } from '../notifications/notification.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PaygateReconciliationService } from './paygate-reconciliation.service';
 
 /** How long before the booked time the reminder push goes out. */
 const REMINDER_MINUTES_BEFORE = 15;
@@ -83,18 +84,40 @@ export class BookingSchedulerService {
    * Runs every hour.
    * Auto-cancels PENDING_PAYMENT bookings that were created more than 30 minutes ago
    * and were never completed, freeing up the slot.
+   *
+   * Exception: bookings paid via PayGate (Flooz/T-Money) get a much longer
+   * grace period. PayGate's Méthode 1 push has no reliable webhook — the
+   * customer may have already paid on their phone, but confirmation only
+   * lands once something re-checks PayGate's status (the app polling while
+   * open, or PaygateReconciliationService's background sweep in the
+   * meantime). Cancelling those at the same 30-minute mark as an abandoned
+   * wallet/card checkout risks cancelling a booking that was actually paid
+   * for — so they're only swept here once PaygateReconciliationService's own
+   * retry window (MAX_AGE_HOURS) has passed and reconciliation still hasn't
+   * resolved them.
    */
   @Cron('0 * * * *')
   async cancelStalePendingBookings(): Promise<void> {
     if (!(await this.redis.acquireLock('cron:cancel-stale', 50))) return;
 
     const cutoff = new Date(Date.now() - 30 * 60 * 1000); // 30 minutes ago
+    const paygateCutoff = new Date(
+      Date.now() - PaygateReconciliationService.MAX_AGE_HOURS * 60 * 60 * 1000,
+    );
 
-    const stale = await this.bookingRepo.find({
+    const candidates = await this.bookingRepo.find({
       where: {
         booking_status: BookingStatus.PENDING_PAYMENT,
         created_at: LessThan(cutoff),
       },
+      relations: { transaction: true },
+    });
+
+    const stale = candidates.filter((b) => {
+      if (b.transaction?.paymentProvider === 'paygate') {
+        return b.created_at < paygateCutoff;
+      }
+      return true;
     });
 
     if (stale.length === 0) return;
@@ -105,7 +128,7 @@ export class BookingSchedulerService {
 
     await this.bookingRepo.save(stale);
     this.logger.log(
-      `Auto-cancelled ${stale.length} stale pending booking(s) older than 30 min`,
+      `Auto-cancelled ${stale.length} stale pending booking(s) (30 min, or ${PaygateReconciliationService.MAX_AGE_HOURS}h for PayGate)`,
     );
   }
 

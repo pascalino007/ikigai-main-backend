@@ -66,6 +66,8 @@ import { AnalyticsEvent } from './analytics/analytics-event.entity';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { TrustedDevice } from './users/trusted-device.entity';
+import { ChatModule } from './chat/chat.module';
+import { ChatMessage } from './chat/chat-message.entity';
 
 @Module({
   imports: [
@@ -107,6 +109,7 @@ import { TrustedDevice } from './users/trusted-device.entity';
         MiServiceOrder,
         AnalyticsEvent,
         TrustedDevice,
+        ChatMessage,
       ],
       synchronize: process.env.DB_SYNCHRONIZE
         ? process.env.DB_SYNCHRONIZE === 'true'
@@ -147,6 +150,7 @@ import { TrustedDevice } from './users/trusted-device.entity';
     MiServicesModule,
     AnalyticsModule,
     MetricsModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],
