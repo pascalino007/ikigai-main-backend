@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
@@ -20,6 +21,8 @@ const CHECKIN_GRACE_MINUTES = 15;
 
 @Injectable()
 export class BookingsService {
+  private readonly logger = new Logger(BookingsService.name);
+
   constructor(
     @InjectRepository(Bookings)
     private readonly bookingRepo: Repository<Bookings>,
@@ -39,6 +42,14 @@ export class BookingsService {
 
   private generateToken(): string {
     return crypto.randomUUID().replace(/-/g, '');
+  }
+
+  /** e.g. "a1b2c3d4e5f6..." -> "a1b2****ef6" — enough to correlate log lines
+   *  without printing a scannable token in full. */
+  private maskToken(token: string): string {
+    if (!token) return '(empty)';
+    if (token.length <= 8) return token;
+    return `${token.slice(0, 4)}****${token.slice(-4)}`;
   }
 
   /** Combines booking_date (YYYY-MM-DD) with booking_time's wall-clock hour/minute. */
@@ -226,21 +237,38 @@ export class BookingsService {
   // ── QR check-in (provider scans client QR → start service) ──
 
   async qrCheckin(token: string, authUserId: number) {
+    this.logger.log(
+      `[qrCheckin] attempt by authUserId=${authUserId} token=${this.maskToken(token)}`,
+    );
     const booking = await this.dataSource.transaction(async (manager) => {
       // Lock the row so a double-scan can't transition it twice.
       const b = await manager.findOne(Bookings, {
         where: { qr_checkin_token: token },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!b) throw new NotFoundException('Invalid check-in QR code');
+      if (!b) {
+        this.logger.warn(
+          `[qrCheckin] no booking matches token=${this.maskToken(token)} (authUserId=${authUserId}) — already consumed, wrong QR, or expired`,
+        );
+        throw new NotFoundException('Invalid check-in QR code');
+      }
+      this.logger.log(
+        `[qrCheckin] token matched booking #${b.id} (status=${b.booking_status}, provider_id=${b.provider_id})`,
+      );
 
       // Authorization: only the booking's shop owner may check it in.
       const shop = await manager.findOne(Shops, { where: { id: b.provider_id } });
       if (!shop || shop.user_id !== authUserId) {
+        this.logger.warn(
+          `[qrCheckin] booking #${b.id}: authUserId=${authUserId} does not own shop ${b.provider_id} (shop.user_id=${shop?.user_id ?? '(shop not found)'})`,
+        );
         throw new ForbiddenException('You are not allowed to check in this booking');
       }
 
       if (b.booking_status !== BookingStatus.CONFIRMED) {
+        this.logger.warn(
+          `[qrCheckin] booking #${b.id}: wrong status ${b.booking_status}, expected CONFIRMED(${BookingStatus.CONFIRMED})`,
+        );
         throw new BadRequestException(
           `Booking is not in confirmed state (current: ${b.booking_status})`,
         );
@@ -257,6 +285,9 @@ export class BookingsService {
         const minutesRemaining = Math.ceil(
           (scheduledAt.getTime() - now.getTime()) / 60_000,
         );
+        this.logger.warn(
+          `[qrCheckin] booking #${b.id}: too early, ${minutesRemaining}min remaining (scheduledAt=${scheduledAt.toISOString()})`,
+        );
         throw new BadRequestException({
           error: 'too_early',
           message: `Le rendez-vous n'a pas encore commencé. Il reste ${minutesRemaining} minute(s).`,
@@ -268,9 +299,13 @@ export class BookingsService {
       b.booking_status = BookingStatus.IN_SERVICE;
       b.checked_in_at = new Date();
       // Generate the checkout token now; consume the check-in token (single-use).
-      b.qr_checkout_token = this.generateToken();
+      const checkoutToken = this.generateToken();
+      b.qr_checkout_token = checkoutToken;
       b.qr_checkin_token = null;
       await manager.save(Bookings, b);
+      this.logger.log(
+        `[qrCheckin] booking #${b.id} checked in — new checkout token=${this.maskToken(checkoutToken)}`,
+      );
 
       // The assigned worker is now serving a client → mark them busy.
       if (b.worker_id) {
@@ -285,19 +320,36 @@ export class BookingsService {
   // ── QR check-out (client scans provider QR → end service) ──
 
   async qrCheckout(token: string, authUserId: number) {
+    this.logger.log(
+      `[qrCheckout] attempt by authUserId=${authUserId} token=${this.maskToken(token)}`,
+    );
     const booking = await this.dataSource.transaction(async (manager) => {
       const b = await manager.findOne(Bookings, {
         where: { qr_checkout_token: token },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!b) throw new NotFoundException('Invalid check-out QR code');
+      if (!b) {
+        this.logger.warn(
+          `[qrCheckout] no booking matches token=${this.maskToken(token)} (authUserId=${authUserId}) — already consumed, wrong QR, or check-in never happened`,
+        );
+        throw new NotFoundException('Invalid check-out QR code');
+      }
+      this.logger.log(
+        `[qrCheckout] token matched booking #${b.id} (status=${b.booking_status}, user_id=${b.user_id})`,
+      );
 
       // Authorization: only the client who owns the booking may check it out.
       if (b.user_id !== authUserId) {
+        this.logger.warn(
+          `[qrCheckout] booking #${b.id}: authUserId=${authUserId} does not match booking.user_id=${b.user_id}`,
+        );
         throw new ForbiddenException('You are not allowed to check out this booking');
       }
 
       if (b.booking_status !== BookingStatus.IN_SERVICE) {
+        this.logger.warn(
+          `[qrCheckout] booking #${b.id}: wrong status ${b.booking_status}, expected IN_SERVICE(${BookingStatus.IN_SERVICE})`,
+        );
         throw new BadRequestException(
           `Booking is not in IN_SERVICE state (current: ${b.booking_status})`,
         );
@@ -307,6 +359,7 @@ export class BookingsService {
       b.checked_out_at = new Date();
       b.qr_checkout_token = null; // single-use
       await manager.save(Bookings, b);
+      this.logger.log(`[qrCheckout] booking #${b.id} checked out successfully`);
 
       // Service finished → the worker is free again.
       if (b.worker_id) {
