@@ -66,6 +66,7 @@ import { AnalyticsEvent } from './analytics/analytics-event.entity';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { TrustedDevice } from './users/trusted-device.entity';
+import { RefreshToken } from './users/refresh-token.entity';
 import { ChatModule } from './chat/chat.module';
 import { ChatMessage } from './chat/chat-message.entity';
 
@@ -109,6 +110,7 @@ import { ChatMessage } from './chat/chat-message.entity';
         MiServiceOrder,
         AnalyticsEvent,
         TrustedDevice,
+        RefreshToken,
         ChatMessage,
       ],
       synchronize: process.env.DB_SYNCHRONIZE

@@ -1,12 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException, UnauthorizedException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { Users } from './user.entity';
 import { TrustedDevice } from './trusted-device.entity';
+import { RefreshToken } from './refresh-token.entity';
 import { ClientWallet } from '../client/client_wallet/client_wallet.entity';
 import { Shops } from '../shops/shop.entity';
 import { CreateUserDto } from './dtos/create-user.dto';
@@ -31,6 +32,8 @@ export class UsersService {
     private readonly shopsRepository: Repository<Shops>,
     @InjectRepository(TrustedDevice)
     private readonly trustedDevicesRepository: Repository<TrustedDevice>,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokensRepository: Repository<RefreshToken>,
     private jwtService: JwtService,
     private readonly mailService: MailService,
     private readonly redis: RedisService,
@@ -95,7 +98,7 @@ export class UsersService {
 
 
 
-    async signin(signinDto: SigninUserDto): Promise<{ message: string; accessToken: string; user: Users; shop?: Shops | null }> {
+    async signin(signinDto: SigninUserDto): Promise<{ message: string; accessToken: string; refreshToken: string; user: Users; shop?: Shops | null }> {
     const user = await this.validateCredentials(signinDto.email, signinDto.password);
     return this.issueSession(user);
   }
@@ -134,7 +137,10 @@ export class UsersService {
   }
 
   /** Issue a JWT session for an already-authenticated user. */
-  private async issueSession(user: Users): Promise<{ message: string; accessToken: string; sessionId: string; user: Users; shop?: Shops | null }> {
+  private async issueSession(
+    user: Users,
+    deviceId?: string | null,
+  ): Promise<{ message: string; accessToken: string; refreshToken: string; sessionId: string; user: Users; shop?: Shops | null }> {
     delete (user as any).password;
     delete (user as any).active_session_id;
     await this.ensureClientWallet(user.id);
@@ -145,6 +151,7 @@ export class UsersService {
 
     const payload = { email: user.email, sub: user.id, role: user.role, sid: sessionId };
     const accessToken = this.jwtService.sign(payload);
+    const refreshToken = await this.issueRefreshToken(user.id, deviceId);
 
     let shop: Shops | null = null;
     if (user.role === 'provider') {
@@ -160,7 +167,81 @@ export class UsersService {
       }
     }
 
-    return { message: 'Signin successful', accessToken, sessionId, user, shop };
+    return { message: 'Signin successful', accessToken, refreshToken, sessionId, user, shop };
+  }
+
+  // ===== Refresh tokens =====
+  // Access tokens are short-lived (JWT_EXPIRES_IN, default 2h). A refresh
+  // token is the long-lived (JWT_REFRESH_EXPIRES_DAYS, default 60d) secret
+  // that lets the client silently mint a new one without a full re-login —
+  // as long as they've opened the app at least once within that window.
+  // Rotating: refreshAccessToken() revokes whatever was presented and issues
+  // a new one, so a leaked refresh token is only replayable once.
+
+  /** Mint + persist a new refresh token for this user; returns the raw secret (only its hash is stored). */
+  private async issueRefreshToken(userId: number, deviceId?: string | null): Promise<string> {
+    const token = crypto.randomBytes(40).toString('hex');
+    const days = parseInt(process.env.JWT_REFRESH_EXPIRES_DAYS || '60', 10);
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    await this.refreshTokensRepository.save(
+      this.refreshTokensRepository.create({
+        user_id: userId,
+        token_hash: this.hashToken(token),
+        device_id: deviceId ?? null,
+        expiresAt,
+      }),
+    );
+    return token;
+  }
+
+  /** Exchange a still-valid refresh token for a new access + refresh token pair. */
+  async refreshAccessToken(
+    rawRefreshToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    if (!rawRefreshToken) {
+      throw new UnauthorizedException('Refresh token requis');
+    }
+    const record = await this.refreshTokensRepository.findOne({
+      where: { token_hash: this.hashToken(rawRefreshToken) },
+    });
+    if (!record || record.revokedAt || record.expiresAt.getTime() < Date.now()) {
+      throw new UnauthorizedException('Refresh token invalide ou expiré');
+    }
+
+    const user = await this.usersRepository.findOne({
+      where: { id: record.user_id },
+      select: ['id', 'email', 'role', 'active_session_id'],
+    });
+    if (!user) {
+      throw new UnauthorizedException('Utilisateur introuvable');
+    }
+
+    // Rotate: this one is spent the moment it's presented, whether or not
+    // the caller ends up using the new pair.
+    record.revokedAt = new Date();
+    await this.refreshTokensRepository.save(record);
+
+    // Reuse the CURRENT session id rather than minting a new one — a silent
+    // refresh extends the existing session, it isn't a new login that should
+    // supersede other devices.
+    const payload = {
+      email: user.email,
+      sub: user.id,
+      role: user.role,
+      sid: user.active_session_id,
+    };
+    const accessToken = this.jwtService.sign(payload);
+    const refreshToken = await this.issueRefreshToken(user.id, record.device_id);
+
+    return { accessToken, refreshToken };
+  }
+
+  /** Revoke every still-valid refresh token for a user (called on logout). */
+  private async revokeAllRefreshTokens(userId: number): Promise<void> {
+    await this.refreshTokensRepository.update(
+      { user_id: userId, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
   }
 
   /** Is this the user's current active session? */
@@ -182,6 +263,7 @@ export class UsersService {
     });
     if (user && (!sessionId || user.active_session_id === sessionId)) {
       await this.usersRepository.update(userId, { active_session_id: null });
+      await this.revokeAllRefreshTokens(userId);
     }
     return { success: true };
   }
@@ -294,12 +376,12 @@ export class UsersService {
     password: string,
     deviceId?: string,
     deviceToken?: string,
-  ): Promise<{ otpRequired: boolean; message?: string; accessToken?: string; sessionId?: string; user?: Users; shop?: Shops | null }> {
+  ): Promise<{ otpRequired: boolean; message?: string; accessToken?: string; refreshToken?: string; sessionId?: string; user?: Users; shop?: Shops | null }> {
     const user = await this.validateCredentials(email, password);
     const normalized = user.email.toLowerCase().trim();
 
     if (await this.isDeviceTrusted(user.id, deviceId, deviceToken)) {
-      const session = await this.issueSession(user);
+      const session = await this.issueSession(user, deviceId);
       return { otpRequired: false, ...session };
     }
 
@@ -315,13 +397,13 @@ export class UsersService {
     deviceId?: string,
     rememberDevice?: boolean,
     deviceName?: string,
-  ): Promise<{ message: string; accessToken: string; sessionId?: string; user: Users; shop?: Shops | null; deviceToken?: string }> {
+  ): Promise<{ message: string; accessToken: string; refreshToken: string; sessionId?: string; user: Users; shop?: Shops | null; deviceToken?: string }> {
     if (!email) throw new BadRequestException('Email requis');
     const normalized = email.toLowerCase().trim();
     await this.consumeAuthOtp(normalized, otp, 'login');
     const user = await this.usersRepository.findOne({ where: { email: normalized } });
     if (!user) throw new NotFoundException('User not found');
-    const session = await this.issueSession(user);
+    const session = await this.issueSession(user, deviceId);
     if (rememberDevice && deviceId) {
       const deviceToken = await this.rememberDevice(user.id, deviceId, deviceName);
       return { ...session, deviceToken };

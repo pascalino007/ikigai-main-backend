@@ -90,6 +90,15 @@ export class UsersController {
     return await this.usersService.clearSession(userId, sessionId);
   }
 
+  // ===== Silent session renewal =====
+  // Exchanges a still-valid (long-lived) refresh token for a new short-lived
+  // access token, without the user re-entering credentials. See
+  // UsersService.refreshAccessToken for the rotation details.
+  @Post('refresh-token')
+  async refreshToken(@Body('refreshToken') refreshToken: string) {
+    return await this.usersService.refreshAccessToken(refreshToken);
+  }
+
   // ===== Forgot password flow (static routes must come before parameterized :id) =====
   @Post('forgot-password')
   async forgotPassword(@Body('email') email: string) {

@@ -12,8 +12,10 @@ import { JwtAuthGuard } from './jwt-auth.guard';
   imports: [
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'yourSecretKey',
+      // Only `secret` matters here (this module only verifies) — kept in
+      // sync with UsersModule's signOptions for clarity, not correctness.
       signOptions: {
-        expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as StringValue,
+        expiresIn: (process.env.JWT_EXPIRES_IN || '2h') as StringValue,
       },
     }),
   ],
