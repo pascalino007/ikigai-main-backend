@@ -5,6 +5,7 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
   ValidateNested,
@@ -60,4 +61,14 @@ export class BulkBookingCheckoutDto {
   @IsString()
   @IsIn([...PAYMENT_PROVIDERS])
   payment_provider: PaymentProviderId;
+
+  /** Required when payment_provider is 'paygate' — bare 8-digit Togo number. */
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  /** Required when payment_provider is 'paygate'. */
+  @IsOptional()
+  @IsIn(['FLOOZ', 'TMONEY'])
+  network?: 'FLOOZ' | 'TMONEY';
 }

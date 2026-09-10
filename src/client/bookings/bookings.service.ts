@@ -15,6 +15,9 @@ import { BookingStatus } from './booking-status.constants';
 import { ProWalletService } from '../../providers/pro_wallet/pro_wallet.service';
 import * as crypto from 'crypto';
 
+/** How early a provider may check a client in relative to the booked time. */
+const CHECKIN_GRACE_MINUTES = 15;
+
 @Injectable()
 export class BookingsService {
   constructor(
@@ -36,6 +39,14 @@ export class BookingsService {
 
   private generateToken(): string {
     return crypto.randomUUID().replace(/-/g, '');
+  }
+
+  /** Combines booking_date (YYYY-MM-DD) with booking_time's wall-clock hour/minute. */
+  private getScheduledDateTime(b: Bookings): Date {
+    const datePart = b.booking_date ?? new Date().toISOString().slice(0, 10);
+    const scheduled = new Date(`${datePart}T00:00:00`);
+    scheduled.setHours(b.booking_time.getHours(), b.booking_time.getMinutes(), 0, 0);
+    return scheduled;
   }
 
   /**
@@ -233,6 +244,25 @@ export class BookingsService {
         throw new BadRequestException(
           `Booking is not in confirmed state (current: ${b.booking_status})`,
         );
+      }
+
+      // Refuse to start the service before the booked time (minus a small
+      // grace window) — otherwise scheduling/ordering has no meaning.
+      const scheduledAt = this.getScheduledDateTime(b);
+      const earliestAllowed = new Date(
+        scheduledAt.getTime() - CHECKIN_GRACE_MINUTES * 60_000,
+      );
+      const now = new Date();
+      if (now < earliestAllowed) {
+        const minutesRemaining = Math.ceil(
+          (scheduledAt.getTime() - now.getTime()) / 60_000,
+        );
+        throw new BadRequestException({
+          error: 'too_early',
+          message: `Le rendez-vous n'a pas encore commencé. Il reste ${minutesRemaining} minute(s).`,
+          scheduledAt: scheduledAt.toISOString(),
+          minutesRemaining,
+        });
       }
 
       b.booking_status = BookingStatus.IN_SERVICE;

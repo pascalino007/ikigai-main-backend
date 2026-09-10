@@ -167,8 +167,8 @@ export class TransactionsService {
         message:
           'Confirmez le paiement en composant le code USSD reçu sur votre téléphone.',
       };
-    } else {
-      // Sandbox fallback
+    } else if (paymentProvider === 'sandbox' && process.env.NODE_ENV !== 'production') {
+      // Sandbox fallback (dev/test only)
       clientInstructions = {
         provider: 'sandbox',
         hint: 'POST /payments/webhooks/sandbox to simulate success',
@@ -182,6 +182,10 @@ export class TransactionsService {
           },
         },
       };
+    } else {
+      throw new BadRequestException(
+        `Unsupported or unconfigured payment provider: ${paymentProvider}`,
+      );
     }
 
     return { transaction, clientInstructions };
@@ -400,8 +404,10 @@ export class TransactionsService {
     amount: number;
     plan: string;
     interval: 'month' | 'year';
-    paymentProvider: 'stripe' | 'kkiapay' | 'sandbox';
+    paymentProvider: 'stripe' | 'kkiapay' | 'paygate' | 'sandbox';
     paymentChannel: string;
+    phone?: string;
+    network?: string;
   }): Promise<DepositResult> {
     const { userId, shopId, amount, plan, interval, paymentProvider, paymentChannel } = params;
 
@@ -464,7 +470,33 @@ export class TransactionsService {
         }),
         transactionRef,
       };
-    } else {
+    } else if (paymentProvider === 'paygate') {
+      if (!this.paygateService.isConfigured) {
+        throw new BadRequestException('PayGate is not configured');
+      }
+      if (!params.phone) {
+        throw new BadRequestException('A phone number is required for PayGate payments');
+      }
+      const network: PaygateNetwork = params.network === 'TMONEY' ? 'TMONEY' : 'FLOOZ';
+      const { txReference } = await this.paygateService.initiatePayment({
+        amount,
+        phone: params.phone,
+        network,
+        transactionRef,
+        description: `Abonnement ${plan}`,
+      });
+      transaction.externalPaymentId = txReference;
+      await this.transactionRepository.save(transaction);
+      clientInstructions = {
+        provider: 'paygate',
+        transactionRef,
+        txReference,
+        network,
+        amount,
+        message: 'Confirmez le paiement en composant le code USSD reçu sur votre téléphone.',
+      };
+    } else if (paymentProvider === 'sandbox' && process.env.NODE_ENV !== 'production') {
+      // Sandbox fallback (dev/test only)
       clientInstructions = {
         provider: 'sandbox',
         hint: 'POST /payments/webhooks/sandbox to simulate success',
@@ -474,6 +506,10 @@ export class TransactionsService {
           body: { transactionRef, status: 'succeeded', externalPaymentId: `sandbox-${transactionRef}` },
         },
       };
+    } else {
+      throw new BadRequestException(
+        `Unsupported or unconfigured payment provider: ${paymentProvider}`,
+      );
     }
 
     return { transaction, clientInstructions };

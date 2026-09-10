@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ProWallet } from './pro_wallet.entity';
@@ -8,6 +8,9 @@ import { Bookings } from '../../client/bookings/bookings.entity';
 import { Subscription } from '../../subscriptions/subscription.entity';
 import { BookingStatus } from '../../client/bookings/booking-status.constants';
 import { TransactionStatus, TransactionMotif } from '../../transaction/transaction.contants';
+
+/** Platform's cut of each completed booking, deducted before the provider payout. */
+const PLATFORM_COMMISSION_RATE = 0.10;
 
 @Injectable()
 export class ProWalletService {
@@ -25,6 +28,16 @@ export class ProWalletService {
     private readonly dataSource: DataSource,
   ) {}
 
+  /** Only the shop's own owner may view/touch its wallet. */
+  private async assertShopOwnership(shopId: number, authUserId: number): Promise<Shops> {
+    const shop = await this.shopsRepo.findOne({ where: { id: shopId } });
+    if (!shop) throw new NotFoundException(`Shop #${shopId} not found`);
+    if (shop.user_id !== authUserId) {
+      throw new ForbiddenException('You are not allowed to access this shop\'s wallet');
+    }
+    return shop;
+  }
+
   async getOrCreateWallet(shopId: number): Promise<ProWallet> {
     let wallet = await this.walletRepo.findOne({ where: { shop_id: shopId } });
     if (!wallet) {
@@ -35,14 +48,14 @@ export class ProWalletService {
     return wallet;
   }
 
-  async getSummary(shopId: number) {
+  async getSummary(shopId: number, authUserId: number) {
+    await this.assertShopOwnership(shopId, authUserId);
     const w = await this.getOrCreateWallet(shopId);
     return { shopId: w.shop_id, balance: w.balance, currency: 'XOF' };
   }
 
-  async getTransactions(shopId: number): Promise<Transaction[]> {
-    const shop = await this.shopsRepo.findOne({ where: { id: shopId } });
-    if (!shop) throw new NotFoundException(`Shop #${shopId} not found`);
+  async getTransactions(shopId: number, authUserId: number): Promise<Transaction[]> {
+    const shop = await this.assertShopOwnership(shopId, authUserId);
     const userId = shop.user_id ?? 0;
     return this.transactionRepo.find({
       where: [{ toUserId: userId }, { fromUserId: userId }],
@@ -50,8 +63,14 @@ export class ProWalletService {
     });
   }
 
-  async requestWithdrawal(shopId: number, amount: number, phone?: string): Promise<Transaction> {
+  async requestWithdrawal(
+    shopId: number,
+    amount: number,
+    phone: string | undefined,
+    authUserId: number,
+  ): Promise<Transaction> {
     if (!amount || amount <= 0) throw new BadRequestException('Invalid withdrawal amount');
+    await this.assertShopOwnership(shopId, authUserId);
 
     return this.dataSource.transaction(async (manager) => {
       let wallet = await manager.findOne(ProWallet, {
@@ -158,21 +177,101 @@ export class ProWalletService {
   }
 
   /**
-   * Credit a provider's wallet for a completed booking.
-   * Idempotent per booking: a deterministic ref (`BOOKING-PAYOUT-<id>`) means a
-   * booking can only ever be credited once, even if the completion event fires
-   * twice or is retried.
+   * Credit a provider's wallet for a completed booking, net of the platform's
+   * 10% commission — the provider gets `grossAmount * 0.9`, and the withheld
+   * 10% is recorded as its own audit-only ADMIN_COMMISSION transaction (no
+   * wallet backs it; it's a ledger entry for accounting/reporting).
+   *
+   * Idempotent per booking on BOTH entries: deterministic refs
+   * (`BOOKING-PAYOUT-<id>` / `BOOKING-COMMISSION-<id>`) mean a booking can only
+   * ever be credited/recorded once, even if the completion event fires twice
+   * or reconciliation is re-run.
    */
   async creditForBooking(
     shopId: number,
-    amount: number,
+    grossAmount: number,
     label: string,
     bookingId: number,
   ): Promise<ProWallet> {
-    return this.applyWalletCredit(shopId, amount, label, {
-      transactionRef: `BOOKING-PAYOUT-${bookingId}`,
-      bookingId,
-      motif: TransactionMotif.PROVIDER_PAYOUT,
+    if (!grossAmount || grossAmount <= 0) {
+      throw new BadRequestException('Invalid credit amount');
+    }
+    const commission = Math.round(grossAmount * PLATFORM_COMMISSION_RATE);
+    const netAmount = grossAmount - commission;
+    const payoutRef = `BOOKING-PAYOUT-${bookingId}`;
+    const commissionRef = `BOOKING-COMMISSION-${bookingId}`;
+
+    return this.dataSource.transaction(async (manager) => {
+      let wallet = await manager.findOne(ProWallet, {
+        where: { shop_id: shopId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!wallet) {
+        wallet = manager.create(ProWallet, { shop_id: shopId, balance: 0 });
+        await manager.save(ProWallet, wallet);
+      }
+
+      const shop = await manager.findOne(Shops, { where: { id: shopId } });
+
+      const existingPayout = await manager.findOne(Transaction, {
+        where: { transactionRef: payoutRef },
+      });
+      if (!existingPayout && netAmount > 0) {
+        const before = wallet.balance;
+        wallet.balance += netAmount;
+        await manager.save(ProWallet, wallet);
+
+        const payoutTx = manager.create(Transaction, {
+          label,
+          fromUserId: 0,
+          toUserId: shop?.user_id ?? 0,
+          amount: netAmount,
+          currency: 'XOF',
+          status: TransactionStatus.SUCCESS,
+          transactionMotifId: TransactionMotif.PROVIDER_PAYOUT,
+          transactionRef: payoutRef,
+          paymentMethod: 'system',
+          paymentProvider: 'system',
+          externalPaymentId: null,
+          balanceBefore: before,
+          balanceAfter: wallet.balance,
+          booking: { id: bookingId } as Bookings,
+          metadata: {
+            shopId,
+            bookingId,
+            grossAmount,
+            commission,
+            commissionRate: PLATFORM_COMMISSION_RATE,
+          },
+        });
+        await manager.save(Transaction, payoutTx);
+      }
+
+      const existingCommission = await manager.findOne(Transaction, {
+        where: { transactionRef: commissionRef },
+      });
+      if (!existingCommission && commission > 0) {
+        const commissionTx = manager.create(Transaction, {
+          label: `Commission plateforme (10%) — booking #${bookingId}`,
+          fromUserId: shop?.user_id ?? 0,
+          toUserId: 0,
+          amount: commission,
+          currency: 'XOF',
+          status: TransactionStatus.SUCCESS,
+          transactionMotifId: TransactionMotif.ADMIN_COMMISSION,
+          transactionRef: commissionRef,
+          paymentMethod: 'system',
+          paymentProvider: 'system',
+          externalPaymentId: null,
+          balanceBefore: 0,
+          balanceAfter: 0,
+          booking: { id: bookingId } as Bookings,
+          metadata: { shopId, bookingId, grossAmount },
+        });
+        await manager.save(Transaction, commissionTx);
+      }
+
+      return wallet;
     });
   }
 
@@ -245,8 +344,10 @@ export class ProWalletService {
     amount: number,
     plan: string,
     interval: 'month' | 'year',
+    authUserId: number,
   ): Promise<{ transaction: Transaction; subscription: Subscription }> {
     if (!amount || amount <= 0) throw new BadRequestException('Invalid subscription amount');
+    await this.assertShopOwnership(shopId, authUserId);
 
     return this.dataSource.transaction(async (manager) => {
       let wallet = await manager.findOne(ProWallet, {

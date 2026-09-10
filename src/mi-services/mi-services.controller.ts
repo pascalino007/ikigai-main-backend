@@ -80,19 +80,28 @@ export class MiServicesController {
       miServiceIds: number[];
       shopId: number;
       userId: number;
-      paymentProvider?: 'kkiapay' | 'wallet';
+      paymentProvider?: 'kkiapay' | 'paygate' | 'wallet';
+      phone?: string;
+      network?: string;
     },
   ) {
-    const { miServiceIds, shopId, userId, paymentProvider } = body;
-    return this.service.initiateBulkPurchase(miServiceIds, shopId, userId, paymentProvider);
+    const { miServiceIds, shopId, userId, paymentProvider, phone, network } = body;
+    return this.service.initiateBulkPurchase(miServiceIds, shopId, userId, paymentProvider, phone, network);
   }
 
   @Post(':id/order')
   async order(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { shopId: number; userId: number; paymentProvider?: 'kkiapay' | 'stripe' | 'wallet' },
+    @Body()
+    body: {
+      shopId: number;
+      userId: number;
+      paymentProvider?: 'kkiapay' | 'stripe' | 'paygate' | 'wallet';
+      phone?: string;
+      network?: string;
+    },
   ) {
-    const { shopId, userId, paymentProvider } = body;
-    return this.service.initiatePurchase(id, shopId, userId, paymentProvider);
+    const { shopId, userId, paymentProvider, phone, network } = body;
+    return this.service.initiatePurchase(id, shopId, userId, paymentProvider, phone, network);
   }
 }

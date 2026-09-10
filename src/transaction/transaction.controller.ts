@@ -77,8 +77,10 @@ export class TransactionsController {
       amount: number;
       plan: string;
       interval: 'month' | 'year';
-      paymentProvider: 'stripe' | 'kkiapay' | 'sandbox';
+      paymentProvider: 'stripe' | 'kkiapay' | 'paygate' | 'sandbox';
       paymentChannel: string;
+      phone?: string;
+      network?: string;
     },
   ) {
     return this.transactionsService.initiateSubscriptionPayment(body);

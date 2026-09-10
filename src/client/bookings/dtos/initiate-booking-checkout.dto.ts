@@ -56,4 +56,14 @@ export class InitiateBookingCheckoutDto {
   @Type(() => Number)
   @IsInt()
   worker_id?: number;
+
+  /** Required when payment_provider is 'paygate' — bare 8-digit Togo number. */
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  /** Required when payment_provider is 'paygate'. */
+  @IsOptional()
+  @IsIn(['FLOOZ', 'TMONEY'])
+  network?: 'FLOOZ' | 'TMONEY';
 }

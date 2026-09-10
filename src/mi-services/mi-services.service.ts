@@ -9,6 +9,7 @@ import { ProWallet } from '../providers/pro_wallet/pro_wallet.entity';
 import { TransactionMotif, TransactionStatus } from '../transaction/transaction.contants';
 import { KkiapayService } from '../payments/kkiapay.service';
 import { StripeService } from '../payments/stripe.service';
+import { PaygateService, PaygateNetwork } from '../payments/paygate.service';
 import { CreateMiServiceDto } from './dtos/create-mi-service.dto';
 import { CreateMiServiceCategoryDto } from './dtos/create-mi-service-category.dto';
 import { RedisService } from '../redis/redis.service';
@@ -30,6 +31,7 @@ export class MiServicesService {
     private readonly dataSource: DataSource,
     private readonly kkiapayService: KkiapayService,
     private readonly stripeService: StripeService,
+    private readonly paygateService: PaygateService,
     private readonly redis: RedisService,
   ) {}
 
@@ -152,7 +154,9 @@ export class MiServicesService {
     miServiceId: number,
     shopId: number,
     userId: number,
-    paymentProvider: 'kkiapay' | 'stripe' | 'wallet' = 'kkiapay',
+    paymentProvider: 'kkiapay' | 'stripe' | 'paygate' | 'wallet' = 'kkiapay',
+    phone?: string,
+    network?: string,
   ): Promise<{ order: MiServiceOrder; clientInstructions: Record<string, unknown> }> {
     const miService = await this.findOne(miServiceId);
     if (!miService.isActive) {
@@ -261,7 +265,10 @@ export class MiServicesService {
       // Build client payment instructions
       let clientInstructions: Record<string, unknown>;
 
-      if (paymentProvider === 'stripe' && this.stripeService.isConfigured) {
+      if (paymentProvider === 'stripe') {
+        if (!this.stripeService.isConfigured) {
+          throw new BadRequestException('Stripe is not configured on the server');
+        }
         const intent = await this.stripeService.createPaymentIntent({
           amount: miService.price,
           currency: 'xof',
@@ -276,7 +283,10 @@ export class MiServicesService {
           amount: miService.price,
           currency: 'xof',
         };
-      } else if (paymentProvider === 'kkiapay' && this.kkiapayService.isConfigured) {
+      } else if (paymentProvider === 'kkiapay') {
+        if (!this.kkiapayService.isConfigured) {
+          throw new BadRequestException('Kkiapay is not configured on the server');
+        }
         clientInstructions = {
           ...this.kkiapayService.buildWidgetPayload({
             amount: miService.price,
@@ -285,8 +295,36 @@ export class MiServicesService {
           }),
           transactionRef,
         };
-      } else {
-        // Sandbox fallback
+      } else if (paymentProvider === 'paygate') {
+        if (!this.paygateService.isConfigured) {
+          throw new BadRequestException(
+            'PayGate is not configured on the server (missing PAYGATE_AUTH_TOKEN)',
+          );
+        }
+        if (!phone) {
+          throw new BadRequestException('A phone number is required for PayGate payments');
+        }
+        const net: PaygateNetwork = network === 'TMONEY' ? 'TMONEY' : 'FLOOZ';
+        const { txReference } = await this.paygateService.initiatePayment({
+          amount: miService.price,
+          phone,
+          network: net,
+          transactionRef,
+          description: `Commande Mi Service: ${miService.name}`,
+        });
+        txn.externalPaymentId = txReference;
+        await manager.save(Transaction, txn);
+        clientInstructions = {
+          provider: 'paygate',
+          transactionRef,
+          txReference,
+          network: net,
+          amount: miService.price,
+          message: 'Confirmez le paiement en composant le code USSD reçu sur votre téléphone.',
+        };
+      } else if (process.env.NODE_ENV !== 'production') {
+        // Sandbox fallback (dev/test only) — anything unrecognized in
+        // production is rejected below instead of silently "succeeding".
         clientInstructions = {
           provider: 'sandbox',
           hint: 'POST /payments/webhooks/sandbox to simulate success',
@@ -300,6 +338,10 @@ export class MiServicesService {
             },
           },
         };
+      } else {
+        throw new BadRequestException(
+          `Unsupported or unconfigured payment provider: ${paymentProvider}`,
+        );
       }
 
       return { order, clientInstructions };
@@ -319,7 +361,9 @@ export class MiServicesService {
     miServiceIds: number[],
     shopId: number,
     userId: number,
-    paymentProvider: 'kkiapay' | 'wallet' = 'wallet',
+    paymentProvider: 'kkiapay' | 'paygate' | 'wallet' = 'wallet',
+    phone?: string,
+    network?: string,
   ): Promise<{
     orders: MiServiceOrder[];
     total: number;
@@ -457,7 +501,10 @@ export class MiServicesService {
       }
 
       let clientInstructions: Record<string, unknown>;
-      if (paymentProvider === 'kkiapay' && this.kkiapayService.isConfigured) {
+      if (paymentProvider === 'kkiapay') {
+        if (!this.kkiapayService.isConfigured) {
+          throw new BadRequestException('Kkiapay is not configured on the server');
+        }
         clientInstructions = {
           ...this.kkiapayService.buildWidgetPayload({
             amount: total,
@@ -467,7 +514,35 @@ export class MiServicesService {
           transactionRef: bulkRef,
           bulkRef,
         };
-      } else {
+      } else if (paymentProvider === 'paygate') {
+        if (!this.paygateService.isConfigured) {
+          throw new BadRequestException(
+            'PayGate is not configured on the server (missing PAYGATE_AUTH_TOKEN)',
+          );
+        }
+        if (!phone) {
+          throw new BadRequestException('A phone number is required for PayGate payments');
+        }
+        const net: PaygateNetwork = network === 'TMONEY' ? 'TMONEY' : 'FLOOZ';
+        const { txReference } = await this.paygateService.initiatePayment({
+          amount: total,
+          phone,
+          network: net,
+          transactionRef: bulkRef,
+          description: `Commande Mi Services (${services.length})`,
+        });
+        clientInstructions = {
+          provider: 'paygate',
+          transactionRef: bulkRef,
+          txReference,
+          network: net,
+          amount: total,
+          bulkRef,
+          message: 'Confirmez le paiement en composant le code USSD reçu sur votre téléphone.',
+        };
+      } else if (process.env.NODE_ENV !== 'production') {
+        // Sandbox fallback (dev/test only) — anything unrecognized in
+        // production is rejected below instead of silently "succeeding".
         clientInstructions = {
           provider: 'sandbox',
           hint: 'POST /payments/webhooks/sandbox with transactionRef = bulkRef to settle all',
@@ -481,6 +556,10 @@ export class MiServicesService {
             },
           },
         };
+      } else {
+        throw new BadRequestException(
+          `Unsupported or unconfigured payment provider: ${paymentProvider}`,
+        );
       }
 
       return { orders, total, bulkRef, clientInstructions };

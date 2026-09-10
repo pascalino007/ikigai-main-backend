@@ -5,6 +5,14 @@ import { Repository, LessThan } from 'typeorm';
 import { Bookings } from '../client/bookings/bookings.entity';
 import { BookingStatus } from '../client/bookings/booking-status.constants';
 import { RedisService } from '../redis/redis.service';
+import { Shops } from '../shops/shop.entity';
+import { Users } from '../users/user.entity';
+import { Services } from '../services/services.entity';
+import { Notification } from '../notifications/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+
+/** How long before the booked time the reminder push goes out. */
+const REMINDER_MINUTES_BEFORE = 15;
 
 @Injectable()
 export class BookingSchedulerService {
@@ -13,6 +21,15 @@ export class BookingSchedulerService {
   constructor(
     @InjectRepository(Bookings)
     private readonly bookingRepo: Repository<Bookings>,
+    @InjectRepository(Shops)
+    private readonly shopsRepo: Repository<Shops>,
+    @InjectRepository(Users)
+    private readonly usersRepo: Repository<Users>,
+    @InjectRepository(Services)
+    private readonly servicesRepo: Repository<Services>,
+    @InjectRepository(Notification)
+    private readonly notificationRepo: Repository<Notification>,
+    private readonly notificationsService: NotificationsService,
     private readonly redis: RedisService,
   ) {}
 
@@ -90,5 +107,98 @@ export class BookingSchedulerService {
     this.logger.log(
       `Auto-cancelled ${stale.length} stale pending booking(s) older than 30 min`,
     );
+  }
+
+  /**
+   * Runs every minute. Finds CONFIRMED bookings starting in ~15 minutes and
+   * sends a reminder push + in-app notification to both the client and the
+   * provider — once per booking, ever (Redis-claimed by booking id, same
+   * building block as the cron lock above, just keyed per-booking instead of
+   * per-job so re-running this method never double-sends).
+   */
+  @Cron('* * * * *')
+  async sendUpcomingAppointmentReminders(): Promise<void> {
+    if (!(await this.redis.acquireLock('cron:send-reminders', 50))) return;
+
+    const now = new Date();
+    // A couple of minutes of slack around the target: the cron runs once a
+    // minute, so this comfortably catches every booking exactly once without
+    // needing sub-minute precision.
+    const windowStart = new Date(now.getTime() + (REMINDER_MINUTES_BEFORE - 1) * 60_000);
+    const windowEnd = new Date(now.getTime() + (REMINDER_MINUTES_BEFORE + 1) * 60_000);
+
+    const candidates = await this.bookingRepo.find({
+      where: { booking_status: BookingStatus.CONFIRMED },
+    });
+
+    for (const b of candidates) {
+      if (!b.booking_date || !b.booking_time) continue;
+      const scheduledAt = new Date(
+        `${b.booking_date}T${b.booking_time.toISOString().slice(11, 19)}`,
+      );
+      if (scheduledAt < windowStart || scheduledAt > windowEnd) continue;
+
+      // Claim this booking's reminder slot (24h TTL — plenty to cover the
+      // lead-up window; irrelevant afterwards since the booking has passed).
+      const claimed = await this.redis.acquireLock(`reminder-sent:${b.id}`, 24 * 60 * 60);
+      if (!claimed) continue;
+
+      await this.sendReminder(b);
+    }
+  }
+
+  private async sendReminder(b: Bookings): Promise<void> {
+    try {
+      const service = await this.servicesRepo.findOne({ where: { id: b.service_id } });
+      const serviceName = service?.name ?? 'votre service';
+      const timeStr = b.booking_time.toISOString().slice(11, 16);
+
+      const client = await this.usersRepo.findOne({ where: { id: b.user_id } });
+      if (client) {
+        await this.notificationRepo.save({
+          user_id: client.id,
+          type: 'appointment_reminder',
+          title: 'Rendez-vous dans 15 minutes',
+          body: `${serviceName} à ${timeStr}. Préparez-vous !`,
+          is_read: false,
+        });
+        if (client.fcm_token) {
+          await this.notificationsService.sendPushNotification({
+            token: client.fcm_token,
+            title: 'Rendez-vous dans 15 minutes',
+            body: `${serviceName} à ${timeStr}. Préparez-vous !`,
+            data: { type: 'appointment_reminder', bookingId: String(b.id) },
+          });
+        }
+      }
+
+      const shop = await this.shopsRepo.findOne({ where: { id: b.provider_id } });
+      if (shop) {
+        const clientName = client ? `${client.firstname} ${client.lastname}`.trim() : 'Un client';
+        if (shop.fcm_token) {
+          await this.notificationsService.sendPushNotification({
+            token: shop.fcm_token,
+            title: 'Client dans 15 minutes',
+            body: `${clientName} arrive à ${timeStr} pour ${serviceName}.`,
+            data: { type: 'appointment_reminder', bookingId: String(b.id) },
+          });
+        }
+        if (shop.user_id) {
+          await this.notificationRepo.save({
+            user_id: shop.user_id,
+            type: 'appointment_reminder',
+            title: 'Client dans 15 minutes',
+            body: `${clientName} arrive à ${timeStr} pour ${serviceName}.`,
+            is_read: false,
+          });
+        }
+      }
+
+      this.logger.log(`Sent 15-min reminder for booking #${b.id}`);
+    } catch (err) {
+      this.logger.error(
+        `Failed to send reminder for booking #${b.id}: ${err?.message ?? err}`,
+      );
+    }
   }
 }

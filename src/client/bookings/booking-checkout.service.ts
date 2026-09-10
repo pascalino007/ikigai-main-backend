@@ -20,6 +20,7 @@ import { parseServicePriceToAmount } from './service-price.util';
 import { TransactionMotif, TransactionStatus } from '../../transaction/transaction.contants';
 import { StripeService } from '../../payments/stripe.service';
 import { KkiapayService } from '../../payments/kkiapay.service';
+import { PaygateService, PaygateNetwork } from '../../payments/paygate.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { Shops } from '../../shops/shop.entity';
 import { Users } from '../../users/user.entity';
@@ -72,6 +73,7 @@ export class BookingCheckoutService {
     private readonly config: ConfigService,
     private readonly stripeService: StripeService,
     private readonly kkiapayService: KkiapayService,
+    private readonly paygateService: PaygateService,
     private readonly notificationsService: NotificationsService,
   ) {}
 
@@ -316,12 +318,16 @@ export class BookingCheckoutService {
       amount,
       currency,
       booking.id,
+      dto.phone,
+      dto.network,
     );
 
-    // Store externalPaymentId if Stripe created one
-    if (clientInstructions.paymentIntentId) {
-      transaction.externalPaymentId =
-        clientInstructions.paymentIntentId as string;
+    // Store externalPaymentId if Stripe or PayGate created one
+    const externalId =
+      (clientInstructions.paymentIntentId as string | undefined) ??
+      (clientInstructions.txReference as string | undefined);
+    if (externalId) {
+      transaction.externalPaymentId = externalId;
       await this.dataSource.getRepository(Transaction).save(transaction);
     }
 
@@ -345,8 +351,13 @@ export class BookingCheckoutService {
     amount: number,
     currency: string,
     bookingId: number,
+    phone?: string,
+    network?: string,
   ): Promise<Record<string, unknown>> {
-    if (provider === 'stripe' && this.stripeService.isConfigured) {
+    if (provider === 'stripe') {
+      if (!this.stripeService.isConfigured) {
+        throw new BadRequestException('Stripe is not configured on the server');
+      }
       const intent = await this.stripeService.createPaymentIntent({
         amount,
         currency,
@@ -367,7 +378,10 @@ export class BookingCheckoutService {
       };
     }
 
-    if (provider === 'kkiapay' && this.kkiapayService.isConfigured) {
+    if (provider === 'kkiapay') {
+      if (!this.kkiapayService.isConfigured) {
+        throw new BadRequestException('Kkiapay is not configured on the server');
+      }
       return {
         ...this.kkiapayService.buildWidgetPayload({
           amount,
@@ -378,20 +392,57 @@ export class BookingCheckoutService {
       };
     }
 
-    // Sandbox / fallback
-    return {
-      provider: 'sandbox',
-      hint: 'POST /payments/webhooks/sandbox to simulate success',
-      simulateWebhook: {
-        method: 'POST',
-        path: '/payments/webhooks/sandbox',
-        body: {
-          transactionRef,
-          status: 'succeeded',
-          externalPaymentId: `sandbox-${transactionRef}`,
+    if (provider === 'paygate') {
+      if (!this.paygateService.isConfigured) {
+        throw new BadRequestException(
+          'PayGate is not configured on the server (missing PAYGATE_AUTH_TOKEN)',
+        );
+      }
+      if (!phone) {
+        throw new BadRequestException(
+          'A phone number is required for PayGate (Flooz/T-Money) payments',
+        );
+      }
+      const net: PaygateNetwork = network === 'TMONEY' ? 'TMONEY' : 'FLOOZ';
+      const { txReference } = await this.paygateService.initiatePayment({
+        amount,
+        phone,
+        network: net,
+        transactionRef,
+        description: `Booking #${bookingId}`,
+      });
+      return {
+        provider: 'paygate',
+        transactionRef,
+        txReference,
+        network: net,
+        amount,
+        message: 'Confirmez le paiement en composant le code USSD reçu sur votre téléphone.',
+      };
+    }
+
+    // Sandbox fallback (dev/test only) — never allowed once the server is
+    // actually in production: an unrecognized/unconfigured provider must
+    // fail loudly instead of silently pretending the payment will "succeed".
+    if (provider === 'sandbox' && process.env.NODE_ENV !== 'production') {
+      return {
+        provider: 'sandbox',
+        hint: 'POST /payments/webhooks/sandbox to simulate success',
+        simulateWebhook: {
+          method: 'POST',
+          path: '/payments/webhooks/sandbox',
+          body: {
+            transactionRef,
+            status: 'succeeded',
+            externalPaymentId: `sandbox-${transactionRef}`,
+          },
         },
-      },
-    };
+      };
+    }
+
+    throw new BadRequestException(
+      `Unsupported or unconfigured payment provider: ${provider}`,
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -650,6 +701,8 @@ export class BookingCheckoutService {
       totalAmount,
       currency,
       bookings.length,
+      dto.phone,
+      dto.network,
     );
 
     return {
@@ -675,8 +728,13 @@ export class BookingCheckoutService {
     amount: number,
     currency: string,
     count: number,
+    phone?: string,
+    network?: string,
   ): Promise<Record<string, unknown>> {
-    if (provider === 'stripe' && this.stripeService.isConfigured) {
+    if (provider === 'stripe') {
+      if (!this.stripeService.isConfigured) {
+        throw new BadRequestException('Stripe is not configured on the server');
+      }
       const intent = await this.stripeService.createPaymentIntent({
         amount,
         currency,
@@ -700,7 +758,10 @@ export class BookingCheckoutService {
       };
     }
 
-    if (provider === 'kkiapay' && this.kkiapayService.isConfigured) {
+    if (provider === 'kkiapay') {
+      if (!this.kkiapayService.isConfigured) {
+        throw new BadRequestException('Kkiapay is not configured on the server');
+      }
       return {
         ...this.kkiapayService.buildWidgetPayload({
           amount,
@@ -713,22 +774,61 @@ export class BookingCheckoutService {
       };
     }
 
-    // Sandbox fallback
-    return {
-      provider: 'sandbox',
-      hint: 'POST /payments/webhooks/sandbox to simulate success of the whole bulk',
-      simulateWebhook: {
-        method: 'POST',
-        path: '/payments/webhooks/sandbox',
-        body: {
-          transactionRef: bulkRef,
-          status: 'succeeded',
-          externalPaymentId: `sandbox-${bulkRef}`,
+    if (provider === 'paygate') {
+      if (!this.paygateService.isConfigured) {
+        throw new BadRequestException(
+          'PayGate is not configured on the server (missing PAYGATE_AUTH_TOKEN)',
+        );
+      }
+      if (!phone) {
+        throw new BadRequestException(
+          'A phone number is required for PayGate (Flooz/T-Money) payments',
+        );
+      }
+      const net: PaygateNetwork = network === 'TMONEY' ? 'TMONEY' : 'FLOOZ';
+      const { txReference } = await this.paygateService.initiatePayment({
+        amount,
+        phone,
+        network: net,
+        transactionRef: bulkRef,
+        description: `Bulk booking (${count} services)`,
+      });
+      return {
+        provider: 'paygate',
+        transactionRef: bulkRef,
+        txReference,
+        network: net,
+        amount,
+        bulkRef,
+        count,
+        message: 'Confirmez le paiement en composant le code USSD reçu sur votre téléphone.',
+      };
+    }
+
+    // Sandbox fallback (dev/test only) — never allowed once the server is
+    // actually in production: an unrecognized/unconfigured provider must
+    // fail loudly instead of silently pretending the payment will "succeed".
+    if (provider === 'sandbox' && process.env.NODE_ENV !== 'production') {
+      return {
+        provider: 'sandbox',
+        hint: 'POST /payments/webhooks/sandbox to simulate success of the whole bulk',
+        simulateWebhook: {
+          method: 'POST',
+          path: '/payments/webhooks/sandbox',
+          body: {
+            transactionRef: bulkRef,
+            status: 'succeeded',
+            externalPaymentId: `sandbox-${bulkRef}`,
+          },
         },
-      },
-      transactionRef: bulkRef,
-      bulkRef,
-      count,
-    };
+        transactionRef: bulkRef,
+        bulkRef,
+        count,
+      };
+    }
+
+    throw new BadRequestException(
+      `Unsupported or unconfigured payment provider: ${provider}`,
+    );
   }
 }
