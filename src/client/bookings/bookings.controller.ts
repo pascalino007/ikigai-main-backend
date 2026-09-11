@@ -17,6 +17,7 @@ import { InitiateBookingCheckoutDto } from './dtos/initiate-booking-checkout.dto
 import { BulkBookingCheckoutDto } from './dtos/bulk-booking-checkout.dto';
 import { UserHistoryDto } from './dtos/userhistory.dto';
 import { FindBookingsDto } from './dtos/find-bookings.dto';
+import { RescheduleBookingDto } from './dtos/reschedule-booking.dto';
 
 @Controller('bookings')
 export class BookingsController {
@@ -54,12 +55,14 @@ export class BookingsController {
   }
 
   /** Mobile: reschedule a booking to a new date/time */
+  @UseGuards(JwtAuthGuard)
   @Patch(':id/reschedule')
   reschedule(
+    @Req() req: any,
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { userId: number; newDate: string; newTime: string },
+    @Body() body: RescheduleBookingDto,
   ) {
-    return this.bookingService.reschedule(id, body.userId, body.newDate, body.newTime);
+    return this.bookingService.reschedule(id, req.user.id, body.newDate, body.newTime);
   }
 
   /** Provider scans client QR → start service */

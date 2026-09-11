@@ -12,8 +12,9 @@ import { Services } from '../../services/services.entity';
 import { Shops } from '../../shops/shop.entity';
 import { Users } from '../../users/user.entity';
 import { Worker } from '../../workers/entities/worker.entity';
-import { BookingStatus } from './booking-status.constants';
+import { BookingStatus, NO_SHOW_GRACE_MINUTES } from './booking-status.constants';
 import { ProWalletService } from '../../providers/pro_wallet/pro_wallet.service';
+import { getScheduledDateTime } from './booking-time.util';
 import * as crypto from 'crypto';
 
 /** How early a provider may check a client in relative to the booked time. */
@@ -53,13 +54,6 @@ export class BookingsService {
   }
 
   /** Combines booking_date (YYYY-MM-DD) with booking_time's wall-clock hour/minute. */
-  private getScheduledDateTime(b: Bookings): Date {
-    const datePart = b.booking_date ?? new Date().toISOString().slice(0, 10);
-    const scheduled = new Date(`${datePart}T00:00:00`);
-    scheduled.setHours(b.booking_time.getHours(), b.booking_time.getMinutes(), 0, 0);
-    return scheduled;
-  }
-
   /**
    * Enrich bookings with service + shop + user + worker data for mobile & provider apps.
    * Batches the lookups (one query per related table via `In(...)`, mirroring
@@ -165,10 +159,8 @@ export class BookingsService {
 
     for (const b of all) {
       if (b.booking_status === BookingStatus.CONFIRMED && b.booking_date) {
-        const bookingDateTime = b.booking_time
-          ? new Date(`${b.booking_date}T${b.booking_time.toISOString().slice(11, 19)}`)
-          : new Date(b.booking_date);
-        if (bookingDateTime < now) {
+        const bookingDateTime = getScheduledDateTime(b);
+        if (now.getTime() - bookingDateTime.getTime() > NO_SHOW_GRACE_MINUTES * 60_000) {
           b.booking_status = BookingStatus.NO_SHOW;
           toUpdate.push(b);
         }
@@ -276,7 +268,7 @@ export class BookingsService {
 
       // Refuse to start the service before the booked time (minus a small
       // grace window) — otherwise scheduling/ordering has no meaning.
-      const scheduledAt = this.getScheduledDateTime(b);
+      const scheduledAt = getScheduledDateTime(b);
       const earliestAllowed = new Date(
         scheduledAt.getTime() - CHECKIN_GRACE_MINUTES * 60_000,
       );
@@ -453,10 +445,8 @@ export class BookingsService {
 
     for (const b of bookings) {
       if (b.booking_status === BookingStatus.CONFIRMED && b.booking_date) {
-        const bookingDateTime = b.booking_time
-          ? new Date(`${b.booking_date}T${b.booking_time.toISOString().slice(11, 19)}`)
-          : new Date(b.booking_date);
-        if (bookingDateTime < now) {
+        const bookingDateTime = getScheduledDateTime(b);
+        if (now.getTime() - bookingDateTime.getTime() > NO_SHOW_GRACE_MINUTES * 60_000) {
           b.booking_status = BookingStatus.NO_SHOW;
           toUpdate.push(b);
         }
@@ -551,10 +541,8 @@ export class BookingsService {
     // Auto-convert passed confirmed bookings to NO_SHOW
     if (booking.booking_status === BookingStatus.CONFIRMED && booking.booking_date) {
       const now = new Date();
-      const bookingDateTime = booking.booking_time
-        ? new Date(`${booking.booking_date}T${booking.booking_time.toISOString().slice(11, 19)}`)
-        : new Date(booking.booking_date);
-      if (bookingDateTime < now) {
+      const bookingDateTime = getScheduledDateTime(booking);
+      if (now.getTime() - bookingDateTime.getTime() > NO_SHOW_GRACE_MINUTES * 60_000) {
         booking.booking_status = BookingStatus.NO_SHOW;
         await this.bookingRepo.save(booking);
       }

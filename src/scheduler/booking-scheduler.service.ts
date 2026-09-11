@@ -3,7 +3,8 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Bookings } from '../client/bookings/bookings.entity';
-import { BookingStatus } from '../client/bookings/booking-status.constants';
+import { BookingStatus, NO_SHOW_GRACE_MINUTES } from '../client/bookings/booking-status.constants';
+import { getScheduledDateTime } from '../client/bookings/booking-time.util';
 import { RedisService } from '../redis/redis.service';
 import { Shops } from '../shops/shop.entity';
 import { Users } from '../users/user.entity';
@@ -61,12 +62,8 @@ export class BookingSchedulerService {
 
     for (const b of candidates) {
       if (!b.booking_date) continue;
-      const bookingDateTime = b.booking_time
-        ? new Date(
-            `${b.booking_date}T${b.booking_time.toISOString().slice(11, 19)}`,
-          )
-        : new Date(b.booking_date);
-      if (bookingDateTime < now) {
+      const bookingDateTime = getScheduledDateTime(b);
+      if (now.getTime() - bookingDateTime.getTime() > NO_SHOW_GRACE_MINUTES * 60_000) {
         b.booking_status = BookingStatus.NO_SHOW;
         toUpdate.push(b);
       }
