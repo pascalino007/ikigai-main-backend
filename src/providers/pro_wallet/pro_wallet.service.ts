@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { ProWallet } from './pro_wallet.entity';
 import { Transaction } from '../../transaction/transaction.entity';
 import { Shops } from '../../shops/shop.entity';
@@ -39,13 +39,63 @@ export class ProWalletService {
   }
 
   async getOrCreateWallet(shopId: number): Promise<ProWallet> {
-    let wallet = await this.walletRepo.findOne({ where: { shop_id: shopId } });
-    if (!wallet) {
-      wallet = await this.walletRepo.save(
+    const existing = await this.walletRepo.findOne({ where: { shop_id: shopId } });
+    if (existing) return existing;
+
+    try {
+      return await this.walletRepo.save(
         this.walletRepo.create({ shop_id: shopId, balance: 0 }),
       );
+    } catch (err) {
+      // Lost the race to create this shop's wallet (shop_id is UNIQUE) — the
+      // winner's row now exists, so just return it.
+      if (this.isDuplicateKeyError(err)) {
+        const wallet = await this.walletRepo.findOne({ where: { shop_id: shopId } });
+        if (wallet) return wallet;
+      }
+      throw err;
     }
-    return wallet;
+  }
+
+  /** MySQL duplicate-key error, however the driver/TypeORM has wrapped it. */
+  private isDuplicateKeyError(err: any): boolean {
+    return (
+      err?.code === 'ER_DUP_ENTRY' ||
+      err?.errno === 1062 ||
+      err?.driverError?.code === 'ER_DUP_ENTRY'
+    );
+  }
+
+  /**
+   * Get-or-create a shop's wallet, row-locked for the rest of the caller's
+   * transaction. `pessimistic_write` only locks a row that already exists, so
+   * two transactions racing to create the same shop's first-ever wallet can
+   * both see no row and both INSERT — the loser hits the `shop_id` unique
+   * constraint instead of silently corrupting data. We catch that and re-select
+   * (now locked) rather than let it surface as an unhandled 500.
+   */
+  private async getOrCreateLockedWallet(
+    manager: EntityManager,
+    shopId: number,
+  ): Promise<ProWallet> {
+    const existing = await manager.findOne(ProWallet, {
+      where: { shop_id: shopId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (existing) return existing;
+
+    try {
+      return await manager.save(ProWallet, manager.create(ProWallet, { shop_id: shopId, balance: 0 }));
+    } catch (err) {
+      if (this.isDuplicateKeyError(err)) {
+        const wallet = await manager.findOne(ProWallet, {
+          where: { shop_id: shopId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (wallet) return wallet;
+      }
+      throw err;
+    }
   }
 
   async getSummary(shopId: number, authUserId: number) {
@@ -73,14 +123,7 @@ export class ProWalletService {
     await this.assertShopOwnership(shopId, authUserId);
 
     return this.dataSource.transaction(async (manager) => {
-      let wallet = await manager.findOne(ProWallet, {
-        where: { shop_id: shopId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!wallet) {
-        wallet = manager.create(ProWallet, { shop_id: shopId, balance: 0 });
-        await manager.save(ProWallet, wallet);
-      }
+      const wallet = await this.getOrCreateLockedWallet(manager, shopId);
 
       if (wallet.balance < amount) throw new BadRequestException('Insufficient balance');
 
@@ -134,14 +177,7 @@ export class ProWalletService {
 
     return this.dataSource.transaction(async (manager) => {
       // Lock the wallet first so all credits to this shop are serialized.
-      let wallet = await manager.findOne(ProWallet, {
-        where: { shop_id: shopId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!wallet) {
-        wallet = manager.create(ProWallet, { shop_id: shopId, balance: 0 });
-        await manager.save(ProWallet, wallet);
-      }
+      const wallet = await this.getOrCreateLockedWallet(manager, shopId);
 
       // Idempotency: never apply the same credit twice.
       const existing = await manager.findOne(Transaction, {
@@ -202,14 +238,7 @@ export class ProWalletService {
     const commissionRef = `BOOKING-COMMISSION-${bookingId}`;
 
     return this.dataSource.transaction(async (manager) => {
-      let wallet = await manager.findOne(ProWallet, {
-        where: { shop_id: shopId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!wallet) {
-        wallet = manager.create(ProWallet, { shop_id: shopId, balance: 0 });
-        await manager.save(ProWallet, wallet);
-      }
+      const wallet = await this.getOrCreateLockedWallet(manager, shopId);
 
       const shop = await manager.findOne(Shops, { where: { id: shopId } });
 
@@ -350,14 +379,7 @@ export class ProWalletService {
     await this.assertShopOwnership(shopId, authUserId);
 
     return this.dataSource.transaction(async (manager) => {
-      let wallet = await manager.findOne(ProWallet, {
-        where: { shop_id: shopId },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!wallet) {
-        wallet = manager.create(ProWallet, { shop_id: shopId, balance: 0 });
-        await manager.save(ProWallet, wallet);
-      }
+      const wallet = await this.getOrCreateLockedWallet(manager, shopId);
 
       if (wallet.balance < amount) throw new BadRequestException('Insufficient balance');
 

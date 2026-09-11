@@ -169,6 +169,23 @@ export class PaygateService {
     }
 
     const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+    // PayGate returns a distinct { error_code, error_message } shape (e.g.
+    // error_code 403 "Transaction non trouvée") when it has no record of
+    // this identifier at all — as opposed to a numeric `status` for one it
+    // does recognize. That happens when the original /pay initiate call
+    // never actually registered with them (network blip, rejected params,
+    // etc.), and it will NEVER resolve to success no matter how many more
+    // times we ask — treat it as a definitive failure instead of the
+    // "unparseable -> keep retrying" fallback, which previously left dead
+    // transactions being re-checked every minute for hours for nothing.
+    if (typeof data.error_code !== 'undefined') {
+      this.logger.warn(
+        `[status] ref=${identifier}: PayGate doesn't recognize this transaction (error_code=${data.error_code} message=${data.error_message ?? '(none)'}) — treating as failed`,
+      );
+      return { outcome: 'failed' };
+    }
+
     const status = Number(data.status);
     if (Number.isNaN(status)) {
       this.logger.warn(

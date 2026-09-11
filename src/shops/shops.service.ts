@@ -1,20 +1,24 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Raw, Repository } from 'typeorm';
 import { Shops } from './shop.entity';
 import { Users } from '../users/user.entity';
 import { CreateShopDto } from './dtos/create-shop.dto';
 import { UpdateShopDto } from './dtos/update-shop.dto';
+import { ProWalletService } from '../providers/pro_wallet/pro_wallet.service';
 
 const GRADE_POINTS: Record<string, number> = { basic: 10, pro: 30, elite: 50 };
 
 @Injectable()
 export class ShopsService {
+  private readonly logger = new Logger(ShopsService.name);
+
   constructor(
     @InjectRepository(Shops)
     private readonly shopsRepository: Repository<Shops>,
     @InjectRepository(Users)
     private readonly usersRepository: Repository<Users>,
+    private readonly proWalletService: ProWalletService,
   ) {}
 
   // ✅ Create a new shop — awards points to enroller if registered_by is a numeric enroller ID
@@ -33,6 +37,19 @@ export class ShopsService {
     }
 
     const savedShop = await this.shopsRepository.save(newShop);
+
+    // Ensure the shop's wallet row exists from day one (shop_id doubles as the
+    // FK). Wallet creation must never block shop creation, so failures are
+    // logged and swallowed — a missing wallet still self-heals lazily on the
+    // shop's first credit/debit via ProWalletService's get-or-create methods.
+    try {
+      await this.proWalletService.getOrCreateWallet(savedShop.id);
+    } catch (err) {
+      this.logger.error(
+        `Failed to create wallet for new shop #${savedShop.id}: ${err?.message ?? err}`,
+        err?.stack,
+      );
+    }
 
     const enrollerId = parseInt(createShopDto.registered_by, 10);
     if (!isNaN(enrollerId)) {
