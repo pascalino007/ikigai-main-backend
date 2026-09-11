@@ -110,11 +110,14 @@ export class BookingSchedulerService {
         booking_status: BookingStatus.PENDING_PAYMENT,
         created_at: LessThan(cutoff),
       },
-      relations: { transaction: true },
+      relations: { transactions: true },
     });
 
     const stale = candidates.filter((b) => {
-      if (b.transaction?.paymentProvider === 'paygate') {
+      // A booking still PENDING_PAYMENT has at most one transaction (its
+      // payment attempt) — the payout/commission entries only exist once
+      // the booking reaches DONE, which can't happen from this state.
+      if (b.transactions?.[0]?.paymentProvider === 'paygate') {
         return b.created_at < paygateCutoff;
       }
       return true;

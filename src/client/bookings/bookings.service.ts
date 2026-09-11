@@ -398,7 +398,7 @@ export class BookingsService {
         booking_date: Between(startDay, endDay),
       },
       order: { booking_date: 'DESC' },
-      relations: { transaction: true },
+      relations: { transactions: true },
     });
     return this.enrichBookings(bookings);
   }
@@ -416,7 +416,7 @@ export class BookingsService {
     const [bookings, total] = await this.bookingRepo.findAndCount({
       where,
       order: { booking_date: 'DESC', booking_time: 'DESC' },
-      relations: { transaction: true },
+      relations: { transactions: true },
       skip,
       take: limit,
     });
@@ -443,7 +443,7 @@ export class BookingsService {
     const [bookings, total] = await this.bookingRepo.findAndCount({
       where,
       order: { booking_date: 'DESC', booking_time: 'DESC' },
-      relations: { transaction: true },
+      relations: { transactions: true },
       skip,
       take: limit,
     });
@@ -544,7 +544,7 @@ export class BookingsService {
   async findOne(id: number) {
     const booking = await this.bookingRepo.findOne({
       where: { id },
-      relations: { transaction: true },
+      relations: { transactions: true },
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
@@ -568,7 +568,7 @@ export class BookingsService {
   async cancel(id: number, providerId: number) {
     const booking = await this.bookingRepo.findOne({
       where: { id },
-      relations: { transaction: true },
+      relations: { transactions: true },
     });
     if (!booking) throw new NotFoundException('Booking not found');
     if (booking.provider_id !== providerId) {

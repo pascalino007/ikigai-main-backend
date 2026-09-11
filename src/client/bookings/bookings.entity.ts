@@ -3,7 +3,7 @@ import {
   Column,
   Index,
   PrimaryGeneratedColumn,
-  OneToOne,
+  OneToMany,
 } from 'typeorm';
 import { Transaction } from '../../transaction/transaction.entity';
 
@@ -83,6 +83,6 @@ export class Bookings {
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 
-  @OneToOne(() => Transaction, (tx) => tx.booking)
-  transaction?: Transaction;
+  @OneToMany(() => Transaction, (tx) => tx.booking)
+  transactions?: Transaction[];
 }

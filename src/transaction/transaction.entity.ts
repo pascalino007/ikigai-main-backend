@@ -3,7 +3,7 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
-  OneToOne,
+  ManyToOne,
   JoinColumn,
   RelationId,
   Index,
@@ -73,7 +73,13 @@ export class Transaction {
   @Column('int')
   balanceAfter: number;
 
-  @OneToOne(() => Bookings, (b) => b.transaction, { nullable: true })
+  // Many transactions can reference one booking (client payment, provider
+  // payout, platform commission, refund, …) — this must stay ManyToOne, not
+  // OneToOne. A prior OneToOne mapping put a UNIQUE constraint on bookingId,
+  // which meant no booking could ever get more than one transaction row —
+  // the provider payout insert always failed with ER_DUP_ENTRY against the
+  // booking's own payment transaction. Confirmed live in prod (booking #98).
+  @ManyToOne(() => Bookings, (b) => b.transactions, { nullable: true })
   @JoinColumn({ name: 'bookingId' })
   booking?: Bookings;
 
