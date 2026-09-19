@@ -8,9 +8,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Transaction } from './transaction.entity';
-import { ClientWallet } from 'src/client/client_wallet/client_wallet.entity';
+import { ClientWallet } from '../client/client_wallet/client_wallet.entity';
 import { Shops } from '../shops/shop.entity';
-import { ProWallet } from 'src/providers/pro_wallet/pro_wallet.entity';
+import { ProWallet } from '../providers/pro_wallet/pro_wallet.entity';
 import { TransactionMotif, TransactionStatus } from './transaction.contants';
 import { StripeService } from '../payments/stripe.service';
 import { KkiapayService } from '../payments/kkiapay.service';

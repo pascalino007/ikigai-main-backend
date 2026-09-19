@@ -3,7 +3,7 @@ import { TransactionsController } from './transaction.controller';
 import { TransactionsService } from './transaction.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Transaction } from './transaction.entity';
-import { ClientWallet } from 'src/client/client_wallet/client_wallet.entity';
+import { ClientWallet } from '../client/client_wallet/client_wallet.entity';
 import { Users } from '../users/user.entity';
 import { Shops } from '../shops/shop.entity';
 import { PaymentsModule } from '../payments/payments.module';
