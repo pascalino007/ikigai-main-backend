@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'crypto';
 import { ProOwnners } from './pro_ownners.entity';
 import { Users } from '../../users/user.entity';
 import { CreateProOwnnerDto } from './dtos/create-proownner.dto';
@@ -17,6 +18,11 @@ export class ProOwnnersService {
     private readonly usersRepository: Repository<Users>,
   ) {}
 
+  /** A fresh, unguessable one-time password for a newly-created provider account. */
+  private generateTempPassword(): string {
+    return randomBytes(9).toString('base64url'); // 12 chars, URL-safe
+  }
+
   // ✅ Create a ProOwner and auto-create a provider user
   async create(createDto: CreateProOwnnerDto): Promise<{ proOwner: ProOwnners; rawPassword: string }> {
     const proOwner = this.proOwnnersRepository.create({
@@ -25,7 +31,7 @@ export class ProOwnnersService {
     });
     const savedProOwner = await this.proOwnnersRepository.save(proOwner);
 
-    const rawPassword = 'ikigai@2026';
+    const rawPassword = this.generateTempPassword();
     const hashedPassword = await bcrypt.hash(rawPassword, 10);
 
     const user = this.usersRepository.create({
@@ -89,7 +95,7 @@ export class ProOwnnersService {
       throw new Error(`User account already exists for ${proOwner.email}`);
     }
 
-    const rawPassword = 'ikigai@2026';
+    const rawPassword = this.generateTempPassword();
     const hashedPassword = await bcrypt.hash(rawPassword, 10);
 
     const user = this.usersRepository.create({

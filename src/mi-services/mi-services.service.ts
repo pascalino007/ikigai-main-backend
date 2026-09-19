@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { MiService } from './mi-service.entity';
@@ -6,6 +6,7 @@ import { MiServiceOrder } from './mi-service-order.entity';
 import { MiServiceCategory } from './mi-service-category.entity';
 import { Transaction } from '../transaction/transaction.entity';
 import { ProWallet } from '../providers/pro_wallet/pro_wallet.entity';
+import { Shops } from '../shops/shop.entity';
 import { TransactionMotif, TransactionStatus } from '../transaction/transaction.contants';
 import { KkiapayService } from '../payments/kkiapay.service';
 import { StripeService } from '../payments/stripe.service';
@@ -28,6 +29,8 @@ export class MiServicesService {
     private readonly orderRepo: Repository<MiServiceOrder>,
     @InjectRepository(Transaction)
     private readonly transactionRepo: Repository<Transaction>,
+    @InjectRepository(Shops)
+    private readonly shopsRepo: Repository<Shops>,
     private readonly dataSource: DataSource,
     private readonly kkiapayService: KkiapayService,
     private readonly stripeService: StripeService,
@@ -110,6 +113,15 @@ export class MiServicesService {
 
   // ── Orders ──
 
+  /** Only the shop's own owner may view/order against it. */
+  private async assertShopOwnership(shopId: number, authUserId: number): Promise<void> {
+    const shop = await this.shopsRepo.findOne({ where: { id: shopId } });
+    if (!shop) throw new NotFoundException(`Shop #${shopId} not found`);
+    if (shop.user_id !== authUserId) {
+      throw new ForbiddenException("You are not allowed to access this shop's mi-service orders");
+    }
+  }
+
   async findAllOrders(): Promise<Array<MiServiceOrder & { mi_service_name?: string }>> {
     const orders = await this.orderRepo.find({ order: { createdAt: 'DESC' } });
     // Attach the service name (no DB relation defined; map in-memory).
@@ -123,7 +135,9 @@ export class MiServicesService {
 
   async findOrdersByShop(
     shopId: number,
+    authUserId: number,
   ): Promise<Array<MiServiceOrder & { mi_service_name?: string; mi_service_image?: string }>> {
+    await this.assertShopOwnership(shopId, authUserId);
     const orders = await this.orderRepo.find({
       where: { shop_id: shopId },
       order: { createdAt: 'DESC' },
@@ -158,6 +172,7 @@ export class MiServicesService {
     phone?: string,
     network?: string,
   ): Promise<{ order: MiServiceOrder; clientInstructions: Record<string, unknown> }> {
+    await this.assertShopOwnership(shopId, userId);
     const miService = await this.findOne(miServiceId);
     if (!miService.isActive) {
       throw new BadRequestException('This service is not available');
@@ -370,6 +385,7 @@ export class MiServicesService {
     bulkRef: string;
     clientInstructions: Record<string, unknown>;
   }> {
+    await this.assertShopOwnership(shopId, userId);
     const uniqueIds = [...new Set(miServiceIds ?? [])];
     if (uniqueIds.length === 0) {
       throw new BadRequestException('Le panier est vide');

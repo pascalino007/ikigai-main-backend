@@ -2,10 +2,14 @@ import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import type { StringValue } from 'ms';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { RolesGuard } from './roles.guard';
+import { AppSignatureGuard } from './app-signature.guard';
 
 /**
- * Global auth: a JwtModule (same secret used to sign tokens at sign-in) and a
- * JwtAuthGuard usable on any controller via `@UseGuards(JwtAuthGuard)`.
+ * Global auth: a JwtModule (same secret used to sign tokens at sign-in), a
+ * JwtAuthGuard usable on any controller via `@UseGuards(JwtAuthGuard)`, a
+ * RolesGuard for `@UseGuards(JwtAuthGuard, RolesGuard) @Roles('provider')`,
+ * and an AppSignatureGuard for login routes.
  */
 @Global()
 @Module({
@@ -19,7 +23,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
       },
     }),
   ],
-  providers: [JwtAuthGuard],
-  exports: [JwtAuthGuard, JwtModule],
+  providers: [JwtAuthGuard, RolesGuard, AppSignatureGuard],
+  exports: [JwtAuthGuard, RolesGuard, AppSignatureGuard, JwtModule],
 })
 export class AuthModule {}

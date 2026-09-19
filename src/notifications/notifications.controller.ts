@@ -6,6 +6,7 @@ import {
   ParseIntPipe,
   Body,
   Logger,
+  UseGuards,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -13,6 +14,9 @@ import { Notification } from './notification.entity';
 import { Users } from '../users/user.entity';
 import { Shops } from '../shops/shop.entity';
 import { NotificationsService } from './notifications.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('notifications')
 export class NotificationsController {
@@ -66,6 +70,8 @@ export class NotificationsController {
 
   /** Broadcast push notification to clients, providers, or both. */
   @Post('broadcast')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   async broadcast(
     @Body() body: { target: 'clients' | 'providers' | 'both'; title: string; message: string; imageUrl?: string },
   ): Promise<{ sent: number; failed: number }> {
@@ -74,7 +80,7 @@ export class NotificationsController {
 
     if (target === 'clients' || target === 'both') {
       const users = await this.usersRepo.find({
-        where: { role: 'client' },
+        where: { role: 'user' },
         select: ['fcm_token'],
       });
       const clientTokens = users.map((u) => u.fcm_token).filter((t): t is string => !!t);
@@ -114,7 +120,7 @@ export class NotificationsController {
     // Persist notifications in DB for history
     if (target === 'clients' || target === 'both') {
       const users = await this.usersRepo.find({
-        where: { role: 'client' },
+        where: { role: 'user' },
         select: ['id'],
       });
       for (const user of users) {
@@ -153,6 +159,8 @@ export class NotificationsController {
 
   /** Get all notifications for admin history (newest first). */
   @Get()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   async getAllNotifications(): Promise<Notification[]> {
     return this.notificationRepo.find({
       order: { created_at: 'DESC' },

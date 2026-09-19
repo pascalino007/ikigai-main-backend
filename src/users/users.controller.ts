@@ -3,11 +3,13 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
   ParseIntPipe,
   Patch,
   Post,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -18,6 +20,10 @@ import { SigninUserDto } from './dtos/signin-user.dto';
 import { Users } from './user.entity';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { UploadService } from '../upload/upload.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { AppSignatureGuard } from '../auth/app-signature.guard';
 
 @Controller('auth')
 export class UsersController {
@@ -35,8 +41,9 @@ export class UsersController {
 
     // ✅ Signin route
   @Post('/signin')
-  async signin(@Body() signinDto: SigninUserDto) {
-    return await this.usersService.signin(signinDto);
+  @UseGuards(AppSignatureGuard)
+  async signin(@Body() signinDto: SigninUserDto, @Headers('x-app-id') appId?: string) {
+    return await this.usersService.signin(signinDto, appId);
   };
 
   // ===== OTP-protected sign-up (email verification) =====
@@ -52,24 +59,28 @@ export class UsersController {
 
   // ===== OTP-protected login (2FA, with optional trusted-device skip) =====
   @Post('login/request-otp')
+  @UseGuards(AppSignatureGuard)
   async requestLoginOtp(
     @Body('email') email: string,
     @Body('password') password: string,
     @Body('deviceId') deviceId?: string,
     @Body('deviceToken') deviceToken?: string,
+    @Headers('x-app-id') appId?: string,
   ) {
-    return await this.usersService.requestLoginOtp(email, password, deviceId, deviceToken);
+    return await this.usersService.requestLoginOtp(email, password, deviceId, deviceToken, appId);
   }
 
   @Post('login/verify')
+  @UseGuards(AppSignatureGuard)
   async verifyLogin(
     @Body('email') email: string,
     @Body('otp') otp: string,
     @Body('deviceId') deviceId?: string,
     @Body('rememberDevice') rememberDevice?: boolean,
     @Body('deviceName') deviceName?: string,
+    @Headers('x-app-id') appId?: string,
   ) {
-    return await this.usersService.verifyLoginOtp(email, otp, deviceId, rememberDevice, deviceName);
+    return await this.usersService.verifyLoginOtp(email, otp, deviceId, rememberDevice, deviceName, appId);
   }
 
   // ===== Single active session (one user, one device at a time) =====
@@ -123,18 +134,24 @@ export class UsersController {
 
   // ===== Admin: view OTP codes =====
   @Get('admin/otps')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   getAllOtps() {
     return UsersService.getAllOtps();
   }
 
   // ===== Mobile-app usage stats (Firebase push registrations) =====
   @Get('stats/app-usage')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   getAppUsage() {
     return this.usersService.getAppUsageStats();
   }
 
   // Get all users
   @Get()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   async findAll(): Promise<Users[]> {
     return await this.usersService.findAll();
   }
@@ -157,6 +174,8 @@ export class UsersController {
 
   // ✅ Delete a user
   @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   async remove(@Param('id', ParseIntPipe) id: number) {
     return await this.usersService.remove(id);
   }

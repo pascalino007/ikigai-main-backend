@@ -422,7 +422,14 @@ export class BookingsService {
   async findByProvider(
     provider_id: number,
     query: { page?: number; limit?: number; startDate?: string; endDate?: string },
+    authUser: { id: number; role: string },
   ) {
+    if (authUser.role === 'provider') {
+      const shop = await this.shopRepo.findOne({ where: { id: provider_id } });
+      if (!shop || shop.user_id !== authUser.id) {
+        throw new BadRequestException('This shop does not belong to you');
+      }
+    }
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
@@ -467,7 +474,13 @@ export class BookingsService {
    * "Ma clientèle": every client who has booked with this provider, with their
    * bookings, total revenue (completed bookings) and last booking.
    */
-  async getClientele(provider_id: number): Promise<any[]> {
+  async getClientele(provider_id: number, authUser: { id: number; role: string }): Promise<any[]> {
+    if (authUser.role === 'provider') {
+      const shop = await this.shopRepo.findOne({ where: { id: provider_id } });
+      if (!shop || shop.user_id !== authUser.id) {
+        throw new BadRequestException('This shop does not belong to you');
+      }
+    }
     const bookings = await this.bookingRepo.find({
       where: { provider_id },
       order: { booking_date: 'DESC', booking_time: 'DESC' },
@@ -553,13 +566,14 @@ export class BookingsService {
 
   // ── Provider cancels a booking ──
 
-  async cancel(id: number, providerId: number) {
+  async cancel(id: number, authUserId: number) {
     const booking = await this.bookingRepo.findOne({
       where: { id },
       relations: { transactions: true },
     });
     if (!booking) throw new NotFoundException('Booking not found');
-    if (booking.provider_id !== providerId) {
+    const shop = await this.shopRepo.findOne({ where: { id: booking.provider_id } });
+    if (!shop || shop.user_id !== authUserId) {
       throw new BadRequestException('This booking does not belong to your shop');
     }
     if (

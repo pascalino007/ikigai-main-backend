@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, UnauthorizedException, ServiceUnavailableException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, UnauthorizedException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -18,6 +18,7 @@ import { MailService } from '../mail/mail.service';
 import { RedisService } from '../redis/redis.service';
 import { resetPasswordTemplate } from '../mail/templates/reset-password.template';
 import { otpEmailTemplate } from '../mail/templates/otp.template';
+import { isRoleAllowedForApp } from '../auth/app-signature.util';
 
 @Injectable()
 export class UsersService {
@@ -98,9 +99,25 @@ export class UsersService {
 
 
 
-    async signin(signinDto: SigninUserDto): Promise<{ message: string; accessToken: string; refreshToken: string; user: Users; shop?: Shops | null }> {
+    async signin(signinDto: SigninUserDto, appId?: string): Promise<{ message: string; accessToken: string; refreshToken: string; user: Users; shop?: Shops | null }> {
     const user = await this.validateCredentials(signinDto.email, signinDto.password);
+    this.assertRoleAllowedForApp(user, appId);
     return this.issueSession(user);
+  }
+
+  /**
+   * When the caller identifies itself via X-App-Id (verified by
+   * AppSignatureGuard upstream), reject accounts whose role isn't meant for
+   * that app — this is what actually stops e.g. a client account from
+   * logging into the provider app. Absent appId (an app build that hasn't
+   * shipped the header yet) skips this check entirely for backward compat;
+   * resource-level role guards elsewhere are the real safety net regardless.
+   */
+  private assertRoleAllowedForApp(user: Users, appId?: string): void {
+    if (!appId) return;
+    if (!isRoleAllowedForApp(appId, user.role)) {
+      throw new ForbiddenException('This account cannot be used with this app');
+    }
   }
 
   /** Validate email + password, returning the user (with legacy plain-text migration). Throws on failure. */
@@ -376,8 +393,10 @@ export class UsersService {
     password: string,
     deviceId?: string,
     deviceToken?: string,
+    appId?: string,
   ): Promise<{ otpRequired: boolean; message?: string; accessToken?: string; refreshToken?: string; sessionId?: string; user?: Users; shop?: Shops | null }> {
     const user = await this.validateCredentials(email, password);
+    this.assertRoleAllowedForApp(user, appId);
     const normalized = user.email.toLowerCase().trim();
 
     if (await this.isDeviceTrusted(user.id, deviceId, deviceToken)) {
@@ -397,12 +416,14 @@ export class UsersService {
     deviceId?: string,
     rememberDevice?: boolean,
     deviceName?: string,
+    appId?: string,
   ): Promise<{ message: string; accessToken: string; refreshToken: string; sessionId?: string; user: Users; shop?: Shops | null; deviceToken?: string }> {
     if (!email) throw new BadRequestException('Email requis');
     const normalized = email.toLowerCase().trim();
     await this.consumeAuthOtp(normalized, otp, 'login');
     const user = await this.usersRepository.findOne({ where: { email: normalized } });
     if (!user) throw new NotFoundException('User not found');
+    this.assertRoleAllowedForApp(user, appId);
     const session = await this.issueSession(user, deviceId);
     if (rememberDevice && deviceId) {
       const deviceToken = await this.rememberDevice(user.id, deviceId, deviceName);

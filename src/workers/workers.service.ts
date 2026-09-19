@@ -1,13 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Worker } from './entities/worker.entity';
 import { WorkerSchedule } from './entities/worker-schedule.entity';
 import { WorkerException } from './entities/worker-exception.entity';
 import { WorkerBusyPeriod } from './entities/worker-busy-period.entity';
 import { Bookings } from '../client/bookings/bookings.entity';
+import { BookingStatus } from '../client/bookings/booking-status.constants';
 import { Services } from '../services/services.entity';
 import { Shops } from '../shops/shop.entity';
+import { getShopHoursForDay } from '../shops/working-hours.util';
 import { Users } from '../users/user.entity';
 import { ProOwnners } from '../providers/pro_ownners/pro_ownners.entity';
 import {
@@ -46,14 +48,34 @@ export class WorkersService {
     private readonly busyRepo: Repository<WorkerBusyPeriod>,
   ) {}
 
+  /**
+   * Only the worker's own shop owner (or staff) may manage it. Providers
+   * are scoped to their own shop; admin/manager pass through unrestricted.
+   */
+  private async assertShopOwnership(shopId: number, authUser: { id: number; role: string }): Promise<void> {
+    if (authUser.role !== 'provider') return;
+    const shop = await this.shopsRepo.findOne({ where: { id: shopId } });
+    if (!shop) throw new NotFoundException(`Shop #${shopId} not found`);
+    if (shop.user_id !== authUser.id) {
+      throw new ForbiddenException("You are not allowed to manage this shop's workers");
+    }
+  }
+
+  private async assertWorkerOwnership(workerId: number, authUser: { id: number; role: string }): Promise<Worker> {
+    const worker = await this.findOne(workerId);
+    await this.assertShopOwnership(worker.shop_id, authUser);
+    return worker;
+  }
+
   // ─── BUSY PERIODS (manual "occupé" blocks) ──────────────────────────────
 
   /** Mark a worker busy for a time window so clients can't book it. */
   async addBusyPeriod(
     workerId: number,
     dto: { busy_date: string; start_time: string; end_time: string; reason?: string },
+    authUser: { id: number; role: string },
   ): Promise<WorkerBusyPeriod> {
-    await this.findOne(workerId); // ensure exists
+    await this.assertWorkerOwnership(workerId, authUser);
     const period = this.busyRepo.create({
       worker_id: workerId,
       busy_date: dto.busy_date,
@@ -64,12 +86,20 @@ export class WorkersService {
     return this.busyRepo.save(period);
   }
 
-  async removeBusyPeriod(id: number): Promise<void> {
+  async removeBusyPeriod(id: number, authUser: { id: number; role: string }): Promise<void> {
+    const period = await this.busyRepo.findOne({ where: { id } });
+    if (!period) throw new NotFoundException(`Busy period #${id} not found`);
+    await this.assertWorkerOwnership(period.worker_id, authUser);
     await this.busyRepo.delete(id);
   }
 
   /** Busy periods for a worker, optionally filtered to a date (default: from today). */
-  async getBusyPeriods(workerId: number, date?: string): Promise<WorkerBusyPeriod[]> {
+  async getBusyPeriods(
+    workerId: number,
+    date: string | undefined,
+    authUser: { id: number; role: string },
+  ): Promise<WorkerBusyPeriod[]> {
+    await this.assertWorkerOwnership(workerId, authUser);
     const where: Record<string, unknown> = { worker_id: workerId };
     if (date) where.busy_date = date;
     return this.busyRepo.find({ where, order: { busy_date: 'ASC', start_time: 'ASC' } });
@@ -127,7 +157,8 @@ export class WorkersService {
 
   // ─── CRUD ──────────────────────────────────────────────────────────────
 
-  async create(dto: CreateWorkerDto): Promise<Worker> {
+  async create(dto: CreateWorkerDto, authUser: { id: number; role: string }): Promise<Worker> {
+    await this.assertShopOwnership(dto.shop_id, authUser);
     const worker = this.workerRepo.create({
       shop_id: dto.shop_id,
       first_name: dto.first_name,
@@ -227,7 +258,8 @@ export class WorkersService {
     return worker;
   }
 
-  async update(id: number, dto: UpdateWorkerDto): Promise<Worker> {
+  async update(id: number, dto: UpdateWorkerDto, authUser: { id: number; role: string }): Promise<Worker> {
+    await this.assertWorkerOwnership(id, authUser);
     const { schedules, ...rest } = dto as any;
 
     // Update scalar fields directly to avoid TypeORM cascade/tracking issues
@@ -249,15 +281,15 @@ export class WorkersService {
     return this.findOne(id);
   }
 
-  async remove(id: number): Promise<void> {
-    const worker = await this.findOne(id);
+  async remove(id: number, authUser: { id: number; role: string }): Promise<void> {
+    const worker = await this.assertWorkerOwnership(id, authUser);
     await this.workerRepo.remove(worker);
   }
 
   // ─── BOOKINGS BY WORKER ────────────────────────────────────────────────
 
-  async getWorkerBookings(workerId: number): Promise<any[]> {
-    await this.findOne(workerId); // ensure exists
+  async getWorkerBookings(workerId: number, authUser: { id: number; role: string }): Promise<any[]> {
+    await this.assertWorkerOwnership(workerId, authUser);
     const bookings = await this.bookingsRepo.find({
       where: { worker_id: workerId },
       order: { booking_date: 'DESC', booking_time: 'DESC' },
@@ -276,7 +308,8 @@ export class WorkersService {
 
   // ─── EXCEPTIONS ────────────────────────────────────────────────────────
 
-  async addException(dto: CreateExceptionDto): Promise<WorkerException> {
+  async addException(dto: CreateExceptionDto, authUser: { id: number; role: string }): Promise<WorkerException> {
+    await this.assertWorkerOwnership(dto.worker_id, authUser);
     const exception = this.exceptionRepo.create({
       worker_id: dto.worker_id,
       exception_date: dto.exception_date,
@@ -288,7 +321,10 @@ export class WorkersService {
     return this.exceptionRepo.save(exception);
   }
 
-  async removeException(id: number): Promise<void> {
+  async removeException(id: number, authUser: { id: number; role: string }): Promise<void> {
+    const exception = await this.exceptionRepo.findOne({ where: { id } });
+    if (!exception) throw new NotFoundException(`Exception #${id} not found`);
+    await this.assertWorkerOwnership(exception.worker_id, authUser);
     await this.exceptionRepo.delete(id);
   }
 
@@ -396,35 +432,16 @@ export class WorkersService {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
-  private _parseShopHours(
-    shop: Shops | null,
-    dayOfWeek: number,
-  ): { start: string; end: string } | null {
-    if (!shop?.workingHours || !Array.isArray(shop.workingHours)) return null;
-    const dayNames = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-    const todayName = dayNames[dayOfWeek];
-    const entry = shop.workingHours.find(
-      (wh) => wh && wh.length >= 2 && wh[0].toLowerCase() === todayName.toLowerCase(),
-    );
-    if (!entry) return null;
-    const hoursStr = entry[1].trim();
-    if (hoursStr.toLowerCase() === 'fermé' || hoursStr === '-') return null;
-    const timeMatch = hoursStr.match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
-    if (!timeMatch) return null;
-    const [, openH, openM, closeH, closeM] = timeMatch.map(Number);
-    return {
-      start: `${String(openH).padStart(2, '0')}:${String(openM).padStart(2, '0')}`,
-      end: `${String(closeH).padStart(2, '0')}:${String(closeM).padStart(2, '0')}`,
-    };
-  }
-
   private async getWorkingHours(
     worker: Worker,
     date: string,
   ): Promise<{ start: string; end: string } | null> {
-    const dayOfWeek = new Date(date).getDay(); // 0=Sun
+    // Local-time parse: `new Date('YYYY-MM-DD')` is UTC midnight, which is the
+    // previous calendar day on a server west of UTC.
+    const dayOfWeek = new Date(`${date}T00:00:00`).getDay(); // 0=Sun
     const shop = await this.shopsRepo.findOne({ where: { id: worker.shop_id } });
-    const shopHours = this._parseShopHours(shop, dayOfWeek);
+    const shopDay = getShopHoursForDay(shop?.workingHours, dayOfWeek);
+    const shopHours = shopDay.state === 'open' ? { start: shopDay.start, end: shopDay.end } : null;
 
     // Check exceptions first
     const exception = worker.exceptions?.find(
@@ -443,21 +460,25 @@ export class WorkersService {
       }
     }
 
-    // Fall back to weekly schedule
-    const schedule = worker.schedules?.find(
-      (s) => s.day_of_week === dayOfWeek && s.is_active,
-    );
+    // The shop itself is closed that day ("fermé" / "-") → nobody can be booked.
+    if (shopDay.state === 'closed') return null;
 
-    if (schedule) {
+    const schedules = worker.schedules?.filter((s) => s.is_active) ?? [];
+    if (schedules.length > 0) {
+      // A configured weekly schedule is authoritative: a day without a row is a
+      // day off (the provider app only stores the days a worker works), so it
+      // must not silently fall back to the shop's opening hours.
+      const schedule = schedules.find((s) => s.day_of_week === dayOfWeek);
+      if (!schedule) return null;
       if (!shopHours) return { start: schedule.start_time, end: schedule.end_time };
-      const clamped = this._clampHours(
+      return this._clampHours(
         { start: schedule.start_time, end: schedule.end_time },
         shopHours,
       );
-      return clamped;
     }
 
-    // Final fallback: shop's working hours
+    // No weekly schedule at all (e.g. the default shop-owner worker) → follow the
+    // shop's opening hours.
     return shopHours;
   }
 
@@ -491,7 +512,9 @@ export class WorkersService {
       where: {
         worker_id: workerId,
         booking_date: date,
-        booking_status: 1, // confirmed only
+        // IN_SERVICE still occupies the worker: once a client is checked in the
+        // booking leaves CONFIRMED, and must not free its window for others.
+        booking_status: In([BookingStatus.CONFIRMED, BookingStatus.IN_SERVICE]),
       },
     });
 

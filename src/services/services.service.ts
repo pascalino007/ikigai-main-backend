@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Services } from './services.entity';
@@ -56,8 +56,21 @@ export class ServicesService {
     });
   }
 
+  /** Only the shop's own owner may create/update/delete its services. */
+  private async assertShopOwnership(shopId: number, authUser: { id: number; role: string }): Promise<void> {
+    const shop = await this.shopsRepository.findOne({ where: { id: shopId } });
+    if (!shop) throw new NotFoundException(`Shop #${shopId} not found`);
+    if (shop.user_id !== authUser.id) {
+      throw new ForbiddenException("You are not allowed to manage this shop's services");
+    }
+  }
+
   // ✅ Create a service
-  async create(createServiceDto: CreateServiceDto): Promise<Services> {
+  async create(createServiceDto: CreateServiceDto, authUser: { id: number; role: string }): Promise<Services> {
+    if (!createServiceDto.provider_id) {
+      throw new BadRequestException('provider_id (shop id) is required');
+    }
+    await this.assertShopOwnership(createServiceDto.provider_id, authUser);
     const service = this.servicesRepository.create({
       ...createServiceDto,
       is_active: true,
@@ -120,9 +133,10 @@ export class ServicesService {
   }
 
   // ✅ Update a service
-  async update(id: number, updateServiceDto: UpdateServiceDto): Promise<Services> {
+  async update(id: number, updateServiceDto: UpdateServiceDto, authUser: { id: number; role: string }): Promise<Services> {
     const service = await this.servicesRepository.findOne({ where: { id } });
     if (!service) throw new NotFoundException(`Service with ID ${id} not found`);
+    await this.assertShopOwnership(service.provider_id, authUser);
     Object.assign(service, updateServiceDto);
     const saved = await this.servicesRepository.save(service);
     await this.invalidateCache();
@@ -135,7 +149,10 @@ export class ServicesService {
   }
 
   // ✅ Delete a service
-  async remove(id: number): Promise<{ message: string }> {
+  async remove(id: number, authUser: { id: number; role: string }): Promise<{ message: string }> {
+    const service = await this.servicesRepository.findOne({ where: { id } });
+    if (!service) throw new NotFoundException(`Service with ID ${id} not found`);
+    await this.assertShopOwnership(service.provider_id, authUser);
     const result = await this.servicesRepository.delete(id);
     if (result.affected === 0) {
       throw new NotFoundException(`Service with ID ${id} not found`);

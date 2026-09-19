@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Raw, Repository } from 'typeorm';
 import { Shops } from './shop.entity';
@@ -23,11 +23,15 @@ export class ShopsService {
 
   // ✅ Create a new shop — awards points to enroller if registered_by is a numeric enroller ID
   // Also links shop to provider user via owner email
-  async create(createShopDto: CreateShopDto): Promise<Shops> {
+  async create(createShopDto: CreateShopDto, authUser: { id: number; role: string }): Promise<Shops> {
     const newShop = this.shopsRepository.create(createShopDto);
 
-    // Link shop to provider user via owner email
-    if (createShopDto.owner) {
+    if (authUser.role === 'provider') {
+      // A provider can only ever create a shop for themself, no matter what
+      // `owner` says in the body.
+      newShop.user_id = authUser.id;
+    } else if (createShopDto.owner) {
+      // Staff (admin/manager) onboarding a shop on a provider's behalf.
       const provider = await this.usersRepository.findOne({
         where: { email: createShopDto.owner, role: 'provider' },
       });
@@ -65,17 +69,22 @@ export class ShopsService {
   }
 
   // ✅ Update an existing shop
-   async update(id: number, updateShopDto: UpdateShopDto): Promise<Shops> {
+   async update(id: number, updateShopDto: UpdateShopDto, authUser: { id: number; role: string }): Promise<Shops> {
     const shop = await this.shopsRepository.findOne({ where: { id } });
 
     if (!shop) {
       throw new NotFoundException(`Shop with ID ${id} not found`);
     }
+    if (authUser.role === 'provider' && shop.user_id !== authUser.id) {
+      throw new ForbiddenException('You are not allowed to update this shop');
+    }
 
     Object.assign(shop, updateShopDto);
 
-    // Re-link provider by owner email whenever owner changes
-    if (updateShopDto.owner !== undefined) {
+    // Re-link provider by owner email whenever owner changes — staff-only:
+    // a provider must never be able to reassign their own shop to another
+    // provider's account (or orphan it) just by editing this field.
+    if (authUser.role !== 'provider' && updateShopDto.owner !== undefined) {
       if (updateShopDto.owner) {
         const provider = await this.usersRepository.findOne({
           where: { email: updateShopDto.owner, role: 'provider' },
@@ -211,13 +220,20 @@ export class ShopsService {
   }
 
   // ✅ Update shop status (ouvert|occupé|free|closed)
-  async updateStatus(id: number, status: 'open' | 'ouvert' | 'occupé' | 'free' | 'closed'): Promise<Shops> {
+  async updateStatus(
+    id: number,
+    status: 'open' | 'ouvert' | 'occupé' | 'free' | 'closed',
+    authUser: { id: number; role: string },
+  ): Promise<Shops> {
     const valid = ['open', 'ouvert', 'occupé', 'free', 'closed'];
     if (!valid.includes(status)) {
       throw new NotFoundException(`Invalid status: ${status}`);
     }
     const shop = await this.shopsRepository.findOne({ where: { id } });
     if (!shop) throw new NotFoundException(`Shop with ID ${id} not found`);
+    if (shop.user_id !== authUser.id) {
+      throw new ForbiddenException('You are not allowed to update this shop');
+    }
     shop.status = status;
     return await this.shopsRepository.save(shop);
   }
@@ -242,9 +258,12 @@ export class ShopsService {
   }
 
   // ✅ Update FCM token for push notifications
-  async updateFcmToken(id: number, fcmToken: string): Promise<Shops> {
+  async updateFcmToken(id: number, fcmToken: string, authUser: { id: number; role: string }): Promise<Shops> {
     const shop = await this.shopsRepository.findOne({ where: { id } });
     if (!shop) throw new NotFoundException(`Shop with ID ${id} not found`);
+    if (shop.user_id !== authUser.id) {
+      throw new ForbiddenException('You are not allowed to update this shop');
+    }
     shop.fcm_token = fcmToken;
     return await this.shopsRepository.save(shop);
   }

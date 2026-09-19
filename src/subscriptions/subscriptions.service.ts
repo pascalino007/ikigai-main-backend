@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Subscription } from './subscription.entity';
 import { SubscriptionPlan } from './subscription-plan.entity';
+import { Shops } from '../shops/shop.entity';
 
 @Injectable()
 export class SubscriptionsService {
@@ -11,27 +12,51 @@ export class SubscriptionsService {
     private readonly repo: Repository<Subscription>,
     @InjectRepository(SubscriptionPlan)
     private readonly planRepo: Repository<SubscriptionPlan>,
+    @InjectRepository(Shops)
+    private readonly shopsRepo: Repository<Shops>,
   ) {}
 
   async findAll(): Promise<Subscription[]> {
     return this.repo.find({ order: { created_at: 'DESC' } });
   }
 
-  async findByUser(userId: number): Promise<Subscription | null> {
+  async findByUser(userId: number, authUser: { id: number; role: string }): Promise<Subscription | null> {
+    if (authUser.role === 'provider' && userId !== authUser.id) {
+      throw new ForbiddenException('You are not allowed to view this subscription');
+    }
     return this.repo.findOne({
       where: { user_id: userId },
       order: { created_at: 'DESC' },
     });
   }
 
-  async findByShop(shopId: number): Promise<Subscription | null> {
+  async findByShop(shopId: number, authUser: { id: number; role: string }): Promise<Subscription | null> {
+    if (authUser.role === 'provider') {
+      const shop = await this.shopsRepo.findOne({ where: { id: shopId } });
+      if (!shop) throw new NotFoundException(`Shop #${shopId} not found`);
+      if (shop.user_id !== authUser.id) {
+        throw new ForbiddenException('You are not allowed to view this subscription');
+      }
+    }
     return this.repo.findOne({
       where: { shop_id: shopId },
       order: { created_at: 'DESC' },
     });
   }
 
-  async create(data: Partial<Subscription>): Promise<Subscription> {
+  async create(data: Partial<Subscription>, authUser: { id: number; role: string }): Promise<Subscription> {
+    if (authUser.role === 'provider') {
+      // A provider can only ever subscribe themself; ignore any user_id in
+      // the body and verify the target shop is actually theirs.
+      data = { ...data, user_id: authUser.id };
+      if (data.shop_id) {
+        const shop = await this.shopsRepo.findOne({ where: { id: data.shop_id } });
+        if (!shop) throw new NotFoundException(`Shop #${data.shop_id} not found`);
+        if (shop.user_id !== authUser.id) {
+          throw new ForbiddenException('You are not allowed to subscribe this shop');
+        }
+      }
+    }
     const sub = this.repo.create(data);
     return this.repo.save(sub);
   }

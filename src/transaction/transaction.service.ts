@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Injectable,
   BadRequestException,
   Logger,
@@ -8,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Transaction } from './transaction.entity';
 import { ClientWallet } from 'src/client/client_wallet/client_wallet.entity';
+import { Shops } from '../shops/shop.entity';
 import { ProWallet } from 'src/providers/pro_wallet/pro_wallet.entity';
 import { TransactionMotif, TransactionStatus } from './transaction.contants';
 import { StripeService } from '../payments/stripe.service';
@@ -32,6 +34,9 @@ export class TransactionsService {
 
     @InjectRepository(ClientWallet)
     private readonly clientWalletRepository: Repository<ClientWallet>,
+
+    @InjectRepository(Shops)
+    private readonly shopsRepository: Repository<Shops>,
 
     private readonly dataSource: DataSource,
     private readonly stripeService: StripeService,
@@ -413,6 +418,13 @@ export class TransactionsService {
 
     if (!amount || amount <= 0) {
       throw new BadRequestException('Invalid subscription amount');
+    }
+    if (shopId) {
+      const shop = await this.shopsRepository.findOne({ where: { id: shopId } });
+      if (!shop) throw new NotFoundException(`Shop #${shopId} not found`);
+      if (shop.user_id !== userId) {
+        throw new ForbiddenException('You are not allowed to pay a subscription for this shop');
+      }
     }
 
     const transactionRef = `SUB-${Date.now()}-${userId}`;

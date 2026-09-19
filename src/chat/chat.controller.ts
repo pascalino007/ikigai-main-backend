@@ -9,6 +9,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { ChatService } from './chat.service';
 
 @Controller('chat')
@@ -33,24 +35,28 @@ export class ChatController {
     return thread;
   }
 
-  // ── Admin dashboard — no user-facing JWT, matches the rest of the /admin
-  //    surface (categories, sliders, songs, …), which is likewise unguarded
-  //    and relies on the dashboard's own login gate. ─────────────────────
+  // ── Admin dashboard ──────────────────────────────────────────────────
 
   /** One row per client conversation, most recent first, with unread counts. */
   @Get('admin/conversations')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   getConversations() {
     return this.chatService.getConversations();
   }
 
   /** Badge count: total unread client messages across all conversations. */
   @Get('admin/unread-count')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   async getUnreadCount() {
     return { count: await this.chatService.getUnreadCount() };
   }
 
   /** One client's full thread. Opening it marks their messages as read. */
   @Get('admin/messages/:userId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   async getThread(@Param('userId', ParseIntPipe) userId: number) {
     const thread = await this.chatService.getThread(userId);
     await this.chatService.markReadByAdmin(userId);
@@ -60,6 +66,8 @@ export class ChatController {
   /** Admin replies — persists the message and pushes a Firebase notification
    *  (with sound) to the client's device. */
   @Post('admin/messages/:userId/reply')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   reply(
     @Param('userId', ParseIntPipe) userId: number,
     @Body() body: { message: string; adminName?: string },

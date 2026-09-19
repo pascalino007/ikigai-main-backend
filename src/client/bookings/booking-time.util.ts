@@ -17,3 +17,21 @@ export function getScheduledDateTime(b: Bookings): Date {
   scheduled.setHours(b.booking_time.getHours(), b.booking_time.getMinutes(), 0, 0);
   return scheduled;
 }
+
+/**
+ * When a service is expected to be over: the later of its scheduled end and
+ * (actual check-in + its scheduled duration), so a client who checked in late
+ * still gets the full service time. Falls back to the scheduled start when the
+ * booking has no end time.
+ */
+export function getExpectedServiceEnd(b: Bookings): Date {
+  const start = getScheduledDateTime(b);
+  if (!b.booking_end_time) return start;
+
+  const scheduledEnd = new Date(start);
+  scheduledEnd.setHours(b.booking_end_time.getHours(), b.booking_end_time.getMinutes(), 0, 0);
+  if (!b.checked_in_at) return scheduledEnd;
+
+  const durationMs = Math.max(0, scheduledEnd.getTime() - start.getTime());
+  return new Date(Math.max(scheduledEnd.getTime(), b.checked_in_at.getTime() + durationMs));
+}

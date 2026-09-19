@@ -6,11 +6,12 @@ import { MiService } from './mi-service.entity';
 import { MiServiceOrder } from './mi-service-order.entity';
 import { MiServiceCategory } from './mi-service-category.entity';
 import { Transaction } from '../transaction/transaction.entity';
+import { Shops } from '../shops/shop.entity';
 import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MiService, MiServiceCategory, MiServiceOrder, Transaction]),
+    TypeOrmModule.forFeature([MiService, MiServiceCategory, MiServiceOrder, Transaction, Shops]),
     PaymentsModule,
   ],
   controllers: [MiServicesController],

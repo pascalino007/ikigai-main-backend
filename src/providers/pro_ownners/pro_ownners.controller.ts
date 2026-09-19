@@ -1,11 +1,16 @@
-import { Controller, Get, Post, Body, Param, Delete, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Delete, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { ProOwnnersService } from './pro_ownners.service';
 import { CreateProOwnnerDto } from './dtos/create-proownner.dto';
 import { ProOwnners } from './pro_ownners.entity';
 import { UpdateProOwnnerDto } from './dtos/update-proownner.dto';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { RolesGuard } from '../../auth/roles.guard';
+import { Roles } from '../../auth/roles.decorator';
 
 
 @Controller('proownners')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('admin', 'manager')
 export class ProOwnnersController {
   constructor(private readonly service: ProOwnnersService) {}
 

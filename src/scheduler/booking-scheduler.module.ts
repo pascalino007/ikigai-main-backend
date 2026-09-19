@@ -8,12 +8,13 @@ import { Users } from '../users/user.entity';
 import { Services } from '../services/services.entity';
 import { Notification } from '../notifications/notification.entity';
 import { Transaction } from '../transaction/transaction.entity';
+import { Worker } from '../workers/entities/worker.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Bookings, Shops, Users, Services, Notification, Transaction]),
+    TypeOrmModule.forFeature([Bookings, Shops, Users, Services, Notification, Transaction, Worker]),
     NotificationsModule,
     PaymentsModule,
   ],

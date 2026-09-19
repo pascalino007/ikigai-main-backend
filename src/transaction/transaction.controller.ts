@@ -1,6 +1,9 @@
-import { Controller, Post, Get, Body, Param, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, ParseIntPipe, Query, Req, UseGuards } from '@nestjs/common';
 import { TransactionsService } from './transaction.service';
 import { InitiateDepositDto } from './dtos/initiate-deposit.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('transactions')
 export class TransactionsController {
@@ -53,11 +56,15 @@ export class TransactionsController {
   }
 
   @Get('admin/all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   getAllTransactions() {
     return this.transactionsService.getAllTransactions();
   }
 
   @Get('shop/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   getShopTransactions(@Param('id', ParseIntPipe) shopId: number) {
     return this.transactionsService.getShopTransactions(shopId);
   }
@@ -70,9 +77,10 @@ export class TransactionsController {
   }
 
   @Post('subscription/initiate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('provider')
   initiateSubscriptionPayment(
     @Body() body: {
-      userId: number;
       shopId?: number;
       amount: number;
       plan: string;
@@ -82,21 +90,29 @@ export class TransactionsController {
       phone?: string;
       network?: string;
     },
+    @Req() req: any,
   ) {
-    return this.transactionsService.initiateSubscriptionPayment(body);
+    // userId is always the caller — never trust a body-supplied one here.
+    return this.transactionsService.initiateSubscriptionPayment({ ...body, userId: req.user.id });
   }
 
   @Get('withdrawals')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   getWithdrawals(@Query('status') status?: 'pending' | 'success' | 'failed') {
     return this.transactionsService.getWithdrawals(status);
   }
 
   @Post('withdrawals/:id/confirm')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   confirmWithdrawal(@Param('id', ParseIntPipe) id: number) {
     return this.transactionsService.confirmWithdrawal(id);
   }
 
   @Post('withdrawals/:id/reject')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   rejectWithdrawal(@Param('id', ParseIntPipe) id: number) {
     return this.transactionsService.rejectWithdrawal(id);
   }

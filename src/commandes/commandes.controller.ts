@@ -1,7 +1,10 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { CommandesService } from './commandes.service';
 import { CreateCommandeDto } from './dtos/create-commande.dto';
 import { UpdateStatusDto } from './dtos/update-status.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('commandes')
 export class CommandesController {
@@ -15,6 +18,8 @@ export class CommandesController {
 
   /** GET /commandes — list all orders (admin/manager) */
   @Get()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   findAll() {
     return this.commandesService.findAll();
   }
@@ -33,6 +38,8 @@ export class CommandesController {
 
   /** PATCH /commandes/:id/status — update order status */
   @Patch(':id/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   updateStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateStatusDto,
@@ -42,6 +49,8 @@ export class CommandesController {
 
   /** DELETE /commandes/:id */
   @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.commandesService.remove(id);
   }

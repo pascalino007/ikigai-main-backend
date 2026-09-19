@@ -16,3 +16,11 @@ export const BookingStatus = {
  * NO_SHOW the instant the clock passed its scheduled time.
  */
 export const NO_SHOW_GRACE_MINUTES = 15;
+
+/**
+ * How long past an IN_SERVICE booking's expected end its worker is still
+ * considered busy. After that, a worker still flagged 'occupé' (the client
+ * never scanned the check-out QR) is set back to 'libre' by
+ * BookingSchedulerService.releaseStaleBusyWorkers.
+ */
+export const STALE_IN_SERVICE_GRACE_MINUTES = 60;

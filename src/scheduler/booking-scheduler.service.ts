@@ -1,11 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository, LessThan, In } from 'typeorm';
 import { Bookings } from '../client/bookings/bookings.entity';
-import { BookingStatus, NO_SHOW_GRACE_MINUTES } from '../client/bookings/booking-status.constants';
-import { getScheduledDateTime } from '../client/bookings/booking-time.util';
+import {
+  BookingStatus,
+  NO_SHOW_GRACE_MINUTES,
+  STALE_IN_SERVICE_GRACE_MINUTES,
+} from '../client/bookings/booking-status.constants';
+import { getExpectedServiceEnd, getScheduledDateTime } from '../client/bookings/booking-time.util';
 import { RedisService } from '../redis/redis.service';
+import { Worker } from '../workers/entities/worker.entity';
 import { Shops } from '../shops/shop.entity';
 import { Users } from '../users/user.entity';
 import { Services } from '../services/services.entity';
@@ -31,6 +36,8 @@ export class BookingSchedulerService {
     private readonly servicesRepo: Repository<Services>,
     @InjectRepository(Notification)
     private readonly notificationRepo: Repository<Notification>,
+    @InjectRepository(Worker)
+    private readonly workerRepo: Repository<Worker>,
     private readonly notificationsService: NotificationsService,
     private readonly redis: RedisService,
   ) {}
@@ -75,6 +82,50 @@ export class BookingSchedulerService {
         `Marked ${toUpdate.length} expired confirmed booking(s) as NO_SHOW`,
       );
     }
+  }
+
+  /**
+   * Runs every 15 minutes.
+   * A worker only becomes 'occupé' through a QR check-in and only goes back to
+   * 'libre' through the client's QR check-out. If that check-out never happens
+   * the worker would stay 'occupé' forever, so free every 'occupé' worker that
+   * has no IN_SERVICE booking still within its expected duration (+ grace).
+   *
+   * This deliberately leaves the booking itself alone: moving it to DONE credits
+   * the provider's wallet (BookingsSubscriber), which must stay tied to the
+   * client's own check-out confirmation.
+   */
+  @Cron('*/15 * * * *')
+  async releaseStaleBusyWorkers(): Promise<void> {
+    if (!(await this.redis.acquireLock('cron:release-busy-workers', 50))) return;
+
+    const busyWorkers = await this.workerRepo.find({
+      where: { status: 'occupé' },
+      select: ['id'],
+    });
+    if (busyWorkers.length === 0) return;
+    const busyIds = busyWorkers.map((w) => w.id);
+
+    const inService = await this.bookingRepo.find({
+      where: { booking_status: BookingStatus.IN_SERVICE, worker_id: In(busyIds) },
+    });
+
+    const graceMs = STALE_IN_SERVICE_GRACE_MINUTES * 60_000;
+    const now = Date.now();
+    const stillBusy = new Set<number>();
+    for (const b of inService) {
+      if (b.worker_id && now <= getExpectedServiceEnd(b).getTime() + graceMs) {
+        stillBusy.add(b.worker_id);
+      }
+    }
+
+    const stale = busyIds.filter((id) => !stillBusy.has(id));
+    if (stale.length === 0) return;
+
+    await this.workerRepo.update({ id: In(stale) }, { status: 'libre' });
+    this.logger.log(
+      `Freed ${stale.length} worker(s) stuck 'occupé' with no live service: ${stale.join(', ')}`,
+    );
   }
 
   /**

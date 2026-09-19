@@ -11,6 +11,8 @@ import {
   Req,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { RolesGuard } from '../../auth/roles.guard';
+import { Roles } from '../../auth/roles.decorator';
 import { BookingsService } from './bookings.service';
 import { BookingCheckoutService } from './booking-checkout.service';
 import { InitiateBookingCheckoutDto } from './dtos/initiate-booking-checkout.dto';
@@ -92,33 +94,45 @@ export class BookingsController {
   }
 
   @Get('stats/count')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   count(@Query('startDate') startDate?: string, @Query('endDate') endDate?: string) {
     return this.bookingService.count(startDate, endDate).then((count) => ({ count }));
   }
 
   @Get('stats/revenue')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   revenue(@Query('startDate') startDate?: string, @Query('endDate') endDate?: string) {
     return this.bookingService.getRevenue(startDate, endDate).then((revenue) => ({ revenue }));
   }
 
   @Get()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   findAll(@Query() query: FindBookingsDto) {
     return this.bookingService.findAll(query);
   }
 
   @Get('provider/:provider_id/clientele')
-  providerClientele(@Param('provider_id', ParseIntPipe) provider_id: number) {
-    return this.bookingService.getClientele(provider_id);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('provider', 'admin', 'manager')
+  providerClientele(@Param('provider_id', ParseIntPipe) provider_id: number, @Req() req: any) {
+    return this.bookingService.getClientele(provider_id, req.user);
   }
 
   @Get('provider/:provider_id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('provider', 'admin', 'manager')
   providerBookings(
     @Param('provider_id', ParseIntPipe) provider_id: number,
     @Query() query: FindBookingsDto,
+    @Req() req: any,
   ) {
     return this.bookingService.findByProvider(
       provider_id,
       query,
+      req.user,
     );
   }
 
@@ -127,12 +141,14 @@ export class BookingsController {
     return this.bookingService.findOne(id);
   }
 
-  /** Provider cancels a booking */
+  /** Provider cancels a booking — ownership enforced against the caller's own shop */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('provider')
   @Post(':id/cancel')
   cancel(
     @Param('id', ParseIntPipe) id: number,
-    @Body('provider_id', ParseIntPipe) providerId: number,
+    @Req() req: any,
   ) {
-    return this.bookingService.cancel(id, providerId);
+    return this.bookingService.cancel(id, req.user.id);
   }
 }

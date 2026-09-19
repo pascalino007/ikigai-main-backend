@@ -10,12 +10,16 @@ import {
   UploadedFile,
   ParseIntPipe,
   UsePipes,
+  UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SlidersService } from './sliders.service';
 import { CreateSliderDto, UpdateSliderDto } from './dto/create-slider.dto';
 import { UploadService } from '../../upload/upload.service';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { RolesGuard } from '../../auth/roles.guard';
+import { Roles } from '../../auth/roles.decorator';
 
 @Controller('sliders')
 export class SlidersController {
@@ -32,16 +36,22 @@ export class SlidersController {
 
   /** Admin: all sliders */
   @Get()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'designer')
   findAll() {
     return this.slidersService.findAll();
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'designer')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.slidersService.findOne(id);
   }
 
   @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'designer')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   @UseInterceptors(FileInterceptor('image'))
   async create(
@@ -56,6 +66,8 @@ export class SlidersController {
   }
 
   @Put(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'designer')
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   @UseInterceptors(FileInterceptor('image'))
   async update(
@@ -71,6 +83,8 @@ export class SlidersController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'designer')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.slidersService.remove(id);
   }

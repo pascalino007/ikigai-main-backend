@@ -1,21 +1,28 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, ParseIntPipe, Query, Req, UseGuards } from '@nestjs/common';
 import { ServicesService } from './services.service';
 import { Services } from './services.entity';
 import { CreateServiceDto } from './dtos/create-service.dto';
 import { UpdateServiceDto } from './dtos/update-service.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('services')
 export class ServicesController {
   constructor(private readonly servicesService: ServicesService) {}
 
-  // ✅ Create service
+  // ✅ Create service — provider's own shop only
   @Post()
-  async create(@Body() createServiceDto: CreateServiceDto): Promise<Services> {
-    return await this.servicesService.create(createServiceDto);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('provider')
+  async create(@Body() createServiceDto: CreateServiceDto, @Req() req: any): Promise<Services> {
+    return await this.servicesService.create(createServiceDto, req.user);
   }
 
-  // ✅ Get service count
+  // ✅ Get service count (dashboard)
   @Get('stats/count')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
   async count(): Promise<{ count: number }> {
     const count = await this.servicesService.count();
     return { count };
@@ -41,19 +48,24 @@ export class ServicesController {
     return await this.servicesService.findShopServices(shopid);
   }
 
-  // ✅ Update service
+  // ✅ Update service — provider's own shop only
   @Post(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('provider')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateServiceDto: UpdateServiceDto,
+    @Req() req: any,
   ): Promise<Services> {
-    return await this.servicesService.update(id, updateServiceDto);
+    return await this.servicesService.update(id, updateServiceDto, req.user);
   }
 
-  // ✅ Delete service
+  // ✅ Delete service — provider's own shop only
   @Delete(':id')
-  async remove(@Param('id', ParseIntPipe) id: number) {
-    return await this.servicesService.remove(id);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('provider')
+  async remove(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
+    return await this.servicesService.remove(id, req.user);
   }
 }
 
