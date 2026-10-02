@@ -14,7 +14,7 @@ export class ServicesController {
   // ✅ Create service — provider's own shop only
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('provider', 'admin', 'enroller', 'manager')
+  @Roles('provider', 'admin', 'enroller')
   create(@Body() dto: CreateServiceDto, @Req() req: any) {
     return this.servicesService.create(dto, req.user);
   }
@@ -51,7 +51,7 @@ export class ServicesController {
   // ✅ Update service — provider's own shop only
   @Post(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('provider', 'admin', 'enroller', 'manager')
+  @Roles('provider', 'admin', 'enroller')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateServiceDto: UpdateServiceDto,
@@ -63,7 +63,7 @@ export class ServicesController {
   // ✅ Delete service — provider's own shop only
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('provider', 'admin', 'enroller', 'manager')
+  @Roles('provider', 'admin', 'enroller')
   async remove(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     return await this.servicesService.remove(id, req.user);
   }

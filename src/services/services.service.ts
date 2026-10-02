@@ -56,11 +56,21 @@ export class ServicesService {
     });
   }
 
-  /** Only the shop's own owner may create/update/delete its services. */
-  private async assertShopOwnership(shopId: number, authUser: { id: number; role: string }): Promise<void> {
+  private async assertShopOwnership(
+    shopId: number,
+    authUser: { id: number; role: string },
+  ): Promise<void> {
     const shop = await this.shopsRepository.findOne({ where: { id: shopId } });
-    if (!shop) throw new NotFoundException(`Shop #${shopId} not found`);
-    if (shop.user_id !== authUser.id) {
+    if (!shop) {
+      throw new NotFoundException('Shop not found');
+    }
+
+    const isPlatformAdmin =
+      authUser?.role === 'admin' ||
+      authUser?.role === 'manager' ||
+      authUser?.role === 'enroller';
+
+    if (!isPlatformAdmin && shop.user_id !== authUser.id) {
       throw new ForbiddenException("You are not allowed to manage this shop's services");
     }
   }
