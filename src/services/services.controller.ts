@@ -15,8 +15,7 @@ export class ServicesController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('provider', 'admin', 'enroller', 'manager')
-  @Post()
-  create(@Body() dto: CreateServiceDto, @Request() req) {
+  create(@Body() dto: CreateServiceDto, @Req() req: any) {
     return this.servicesService.create(dto, req.user);
   }
 
@@ -52,7 +51,7 @@ export class ServicesController {
   // ✅ Update service — provider's own shop only
   @Post(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('provider')
+  @Roles('provider', 'admin', 'enroller', 'manager')
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateServiceDto: UpdateServiceDto,
@@ -64,7 +63,7 @@ export class ServicesController {
   // ✅ Delete service — provider's own shop only
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('provider')
+  @Roles('provider', 'admin', 'enroller', 'manager')
   async remove(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     return await this.servicesService.remove(id, req.user);
   }
