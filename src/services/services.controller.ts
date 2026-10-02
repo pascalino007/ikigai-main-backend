@@ -14,9 +14,10 @@ export class ServicesController {
   // ✅ Create service — provider's own shop only
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('provider')
-  async create(@Body() createServiceDto: CreateServiceDto, @Req() req: any): Promise<Services> {
-    return await this.servicesService.create(createServiceDto, req.user);
+  @Roles('provider', 'admin', 'enroller', 'manager')
+  @Post()
+  create(@Body() dto: CreateServiceDto, @Request() req) {
+    return this.servicesService.create(dto, req.user);
   }
 
   // ✅ Get service count (dashboard)

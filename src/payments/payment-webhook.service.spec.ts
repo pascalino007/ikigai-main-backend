@@ -227,7 +227,10 @@ describe('PaymentWebhookService', () => {
       const decoy = manager.create(Transaction, {
         label: 'decoy',
         fromUserId: 3,
-        toUserId: 3,
+        toUserId: 3,       
+        @Roles('provider', 'admin','enroller', 'manager')
+        @Post('/services')
+        createService() { ... }
         amount: 100,
         currency: 'XOF',
         status: TransactionStatus.PENDING,
