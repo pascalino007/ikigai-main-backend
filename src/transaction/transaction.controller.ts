@@ -62,6 +62,14 @@ export class TransactionsController {
     return this.transactionsService.getAllTransactions();
   }
 
+  /** Daily platform commission (10%) for the earnings dashboard. `days` defaults to 30, max 365. */
+  @Get('admin/earnings')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'manager')
+  getPlatformEarnings(@Query('days') days?: string) {
+    return this.transactionsService.getPlatformEarnings(days ? Number(days) : undefined);
+  }
+
   @Get('shop/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'manager')

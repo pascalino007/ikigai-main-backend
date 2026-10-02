@@ -6,10 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, MoreThanOrEqual, Repository } from 'typeorm';
 import { Transaction } from './transaction.entity';
 import { ClientWallet } from '../client/client_wallet/client_wallet.entity';
 import { Shops } from '../shops/shop.entity';
+import { Users } from '../users/user.entity';
 import { ProWallet } from '../providers/pro_wallet/pro_wallet.entity';
 import { TransactionMotif, TransactionStatus } from './transaction.contants';
 import { StripeService } from '../payments/stripe.service';
@@ -37,6 +38,9 @@ export class TransactionsService {
 
     @InjectRepository(Shops)
     private readonly shopsRepository: Repository<Shops>,
+
+    @InjectRepository(Users)
+    private readonly usersRepository: Repository<Users>,
 
     private readonly dataSource: DataSource,
     private readonly stripeService: StripeService,
@@ -393,10 +397,113 @@ export class TransactionsService {
   }
 
  
-  async getAllTransactions(): Promise<Transaction[]> {
-    return this.transactionRepository.find({
+  async getAllTransactions() {
+    const transactions = await this.transactionRepository.find({
+      relations: { booking: true },
       order: { createdAt: 'DESC' },
     });
+    return this.enrichTransactions(transactions);
+  }
+
+  /**
+   * Best-effort resolves display names for the admin transactions list.
+   *
+   * `fromUserId`/`toUserId` don't mean the same thing across motifs (e.g. for
+   * a BOOKING_PAYMENT, `toUserId` is actually the shop/provider id, not a
+   * `Users.id`) — rather than special-case every motif, this resolves both
+   * possible sources (the linked booking's client/shop, and a plain Users
+   * lookup on the raw ids) and lets the caller prefer whichever is set.
+   */
+  private async enrichTransactions(transactions: Transaction[]) {
+    if (transactions.length === 0) return [];
+
+    const userIds = new Set<number>();
+    const shopIds = new Set<number>();
+    for (const t of transactions) {
+      if (t.fromUserId) userIds.add(t.fromUserId);
+      if (t.toUserId) userIds.add(t.toUserId);
+      if (t.booking) {
+        userIds.add(t.booking.user_id);
+        shopIds.add(t.booking.provider_id);
+      }
+    }
+
+    const [users, shops] = await Promise.all([
+      userIds.size ? this.usersRepository.find({ where: { id: In([...userIds]) } }) : Promise.resolve([]),
+      shopIds.size ? this.shopsRepository.find({ where: { id: In([...shopIds]) } }) : Promise.resolve([]),
+    ]);
+
+    const userById = new Map(users.map((u) => [u.id, u]));
+    const shopById = new Map(shops.map((s) => [s.id, s]));
+    const userName = (id?: number | null) => {
+      const u = id ? userById.get(id) : undefined;
+      return u ? `${u.firstname ?? ''} ${u.lastname ?? ''}`.trim() || null : null;
+    };
+
+    return transactions.map((t) => ({
+      ...t,
+      clientName: t.booking ? userName(t.booking.user_id) : null,
+      shopName: t.booking ? (shopById.get(t.booking.provider_id)?.name ?? null) : null,
+      fromUserName: userName(t.fromUserId),
+      toUserName: userName(t.toUserId),
+    }));
+  }
+
+  /**
+   * Daily platform earnings: the actual 10% commission ledger
+   * (ADMIN_COMMISSION transactions, written by ProWalletService.creditForBooking
+   * once a booking reaches DONE) bucketed by day, alongside the gross booking
+   * amount each commission was computed from (stored in the commission
+   * transaction's own metadata, so no separate bookings query is needed).
+   */
+  async getPlatformEarnings(days?: number) {
+    const requested = days == null ? 30 : Math.trunc(days);
+    const clampedDays = Math.min(Math.max(requested, 1), 365);
+
+    const since = new Date();
+    since.setUTCDate(since.getUTCDate() - (clampedDays - 1));
+    since.setUTCHours(0, 0, 0, 0);
+
+    const rows = await this.transactionRepository.find({
+      where: {
+        transactionMotifId: TransactionMotif.ADMIN_COMMISSION,
+        status: TransactionStatus.SUCCESS,
+        createdAt: MoreThanOrEqual(since),
+      },
+      select: ['amount', 'createdAt', 'metadata'],
+    });
+
+    type DayBucket = { commission: number; gross: number; bookingsCount: number };
+    const byDate = new Map<string, DayBucket>();
+    for (const row of rows) {
+      const date = row.createdAt.toISOString().slice(0, 10);
+      const bucket = byDate.get(date) ?? { commission: 0, gross: 0, bookingsCount: 0 };
+      const gross = typeof row.metadata?.grossAmount === 'number' ? (row.metadata.grossAmount as number) : 0;
+      bucket.commission += row.amount;
+      bucket.gross += gross;
+      bucket.bookingsCount += 1;
+      byDate.set(date, bucket);
+    }
+
+    // Fill every day in the range (even zero-activity ones) so the chart has a continuous axis.
+    const series = Array.from({ length: clampedDays }, (_, i) => {
+      const d = new Date(since);
+      d.setUTCDate(d.getUTCDate() + i);
+      const date = d.toISOString().slice(0, 10);
+      const bucket: DayBucket = byDate.get(date) ?? { commission: 0, gross: 0, bookingsCount: 0 };
+      return { date, ...bucket };
+    });
+
+    const totals = series.reduce(
+      (acc, s) => ({
+        commission: acc.commission + s.commission,
+        gross: acc.gross + s.gross,
+        bookingsCount: acc.bookingsCount + s.bookingsCount,
+      }),
+      { commission: 0, gross: 0, bookingsCount: 0 },
+    );
+
+    return { series, totals };
   }
 
   /**

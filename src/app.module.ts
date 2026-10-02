@@ -113,9 +113,10 @@ import { ChatMessage } from './chat/chat-message.entity';
         RefreshToken,
         ChatMessage,
       ],
-      synchronize: process.env.DB_SYNCHRONIZE
-        ? process.env.DB_SYNCHRONIZE === 'true'
-        : true,
+      // Defaults to OFF: auto-altering the live schema on boot has already
+      // crash-looped production once (see fix-transaction-booking-relation.ts).
+      // Opt in explicitly per-environment via DB_SYNCHRONIZE=true.
+      synchronize: process.env.DB_SYNCHRONIZE === 'true',
       autoLoadEntities: true,
     }),
     UsersModule,
